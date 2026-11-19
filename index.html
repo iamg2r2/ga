@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#f5f8fb"><meta name="description" content="g2r2 Academy — a bright classroom companion for Flutter and Dart">
+<title>g2r2 Academy · Programming Smart Devices</title>
+<link rel="icon" href="./assets/icon-192.png"><link rel="manifest" href="./manifest.webmanifest">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div id="root"><main class="boot"><div class="spinner"></div><p>Opening your Academy…</p></main></div>
+<div id="toast" aria-live="polite" role="status"></div>
+<script src="./config.js"></script>
+<script type="module" src="./app.js"></script>
+<button class="rocket-top" id="rocketTop" aria-label="Rocket back to top" title="Blast to the top"><img src="./assets/rocket.webp" width="90" height="90" alt="" aria-hidden="true"></button>
+<script>
+(function(){const r=document.getElementById('rocketTop');function update(){r.classList.toggle('visible',window.scrollY>380)}window.addEventListener('scroll',update,{passive:true});update();r.addEventListener('click',()=>{r.classList.remove('launching');void r.offsetWidth;r.classList.add('launching');window.scrollTo({top:0,behavior:'smooth'});setTimeout(()=>r.classList.remove('launching'),900)})})();
+</script>
+</body>
+</html>
