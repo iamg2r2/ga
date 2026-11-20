@@ -41,6 +41,71 @@ const isAdmin=()=>!demoMode&&data?.me?.account_role==='admin';
 let platformStatus={maintenance_enabled:false,message:'We are improving g2r2 Academy. Please check back shortly.',is_admin:false};
 let importPreview=[];let importFilename='';let importResults=[];
 let studentRoster={students:[],count:0,page:0,page_size:30};let studentSearch='';let studentFilter='all';let studentLoading=false;let studentError='';
+
+const workspaceKey='g2r2-academy-workspace-v1';
+const workspacePages=new Set(['dashboard','admin','students','lessons','manual','lab','classroom','practice','requests','revisions','reports','settings']);
+let pendingWorkspaceScroll=null;
+// Per-tab workspace state: never store credentials, server answers, or account data.
+function storeWorkspace(){
+ if(demoMode||!api?.userId||!data||!workspacePages.has(state.page))return;
+ try{
+  const snapshot={
+   userId:api.userId,offeringId:data.offeringId,page:state.page,
+   unit:state.unit,hour:state.hour,manualUnit:state.manualUnit,manualTopic:state.manualTopic,
+   labNo:state.labNo,labTab:state.labTab,sessionLesson:state.sessionLesson,
+   selectedActivity:state.selectedActivity,selectedLessons:state.selectedLessons,
+   manualAnswers:state.manualAnswers,choice:state.choice,ordering:state.ordering,
+   draftReleaseId:selectedRelease()?.id||null,
+   scrollY:pendingWorkspaceScroll??window.scrollY
+  };
+  sessionStorage.setItem(workspaceKey,JSON.stringify(snapshot));
+ }catch(err){console.warn('Could not save workspace position',err)}
+}
+function restoreWorkspace(){
+ if(demoMode||!api?.userId)return;
+ state.page='dashboard';
+ let saved;try{saved=JSON.parse(sessionStorage.getItem(workspaceKey)||'null')}catch{return}
+ if(!saved||saved.userId!==api.userId||!workspacePages.has(saved.page))return;
+ state.page=saved.page;
+ for(const key of ['unit','hour','manualUnit','labNo']){
+  if(Number.isInteger(saved[key])&&saved[key]>=0&&saved[key]<1000)state[key]=saved[key];
+ }
+ for(const key of ['manualTopic','labTab','sessionLesson','selectedActivity']){
+  if(typeof saved[key]==='string'||saved[key]===null)state[key]=saved[key];
+ }
+ if(saved.choice===null||Number.isInteger(saved.choice))state.choice=saved.choice;
+ if(Array.isArray(saved.ordering))state.ordering=saved.ordering.filter(x=>Number.isInteger(x)&&x>=0&&x<100).slice(0,100);
+ if(saved.manualAnswers&&typeof saved.manualAnswers==='object'&&!Array.isArray(saved.manualAnswers))state.manualAnswers=saved.manualAnswers;
+ if(Array.isArray(saved.selectedLessons))state.selectedLessons=saved.selectedLessons.filter(x=>typeof x==='string').slice(0,100);
+ state.draftReleaseId=typeof saved.draftReleaseId==='string'?saved.draftReleaseId:null;
+ state.offeringId=typeof saved.offeringId==='string'?saved.offeringId:null;
+ pendingWorkspaceScroll=Number.isFinite(saved.scrollY)&&saved.scrollY>=0?saved.scrollY:null;
+}
+function finishWorkspaceRestore(){
+ if(pendingWorkspaceScroll===null)return;
+ const y=pendingWorkspaceScroll;
+ pendingWorkspaceScroll=null;
+ requestAnimationFrame(()=>{window.scrollTo(0,y);storeWorkspace()});
+}
+function clearWorkspace(){
+ try{sessionStorage.removeItem(workspaceKey)}catch{}
+ pendingWorkspaceScroll=null;
+ state.page='dashboard';state.manualTopic=null;state.labNo=0;state.selectedActivity=null;
+ state.choice=null;state.ordering=[];state.draftReleaseId=null;state.offeringId=null;
+}
+window.addEventListener('pagehide',storeWorkspace);
+// Only repaint live screens when server data actually changed, not every polling tick.
+function liveFingerprint(d){
+ if(!d)return '';
+ return JSON.stringify({
+  offeringId:d.offeringId,sessions:d.sessions,attendance:d.attendance,
+  releases:d.releases,attempts:d.attempts,activities:d.activities,
+  unlocks:d.unlocks,grants:d.grants,labUnlocks:d.labUnlocks,
+  labCompletions:d.labCompletions,requests:d.requests,revisions:d.revisions,
+  enrollments:d.enrollments
+ });
+}
+
 const material=l=>data?.materials?.find(m=>m.lesson_id===l?.id)?.content||null;
 const offered=()=>data?.offerings?.find(o=>o.id===data.offeringId);
 const currentCourse=()=>data?.courses?.find(c=>c.id===offered()?.course_id);
@@ -71,11 +136,12 @@ async function init(){
       root.innerHTML=`<section class="auth"><img class="auth-logo" src="./assets/academy-logo.webp" alt="g2r2 Academy"><h1>g2r2 Academy</h1><p class="sub">Programming Smart Devices · MCA Semester II</p><div class="card"><h2>Academy setup in progress</h2><p>The website is published, but its dedicated Supabase connection has not yet been configured.</p><p>The faculty will enable student sign-in when setup is complete.</p></div><p class="venture">a g2r2 venture</p></section>`;
       return;
     }
+    if(!demoMode&&api.session)restoreWorkspace();
     if(demoMode){rawLabs=window.ACADEMY_DEMO_LABS||[];rawLessons=await fetch('./content/lessons.json').then(r=>{if(!r.ok)throw Error('Course content unavailable');return r.json()});
       try{demo=JSON.parse(localStorage.getItem(demoKey)||'null')}catch{}
       if(!demo) demo={role:'faculty',labsUnlocked:[1,2],labDone:[],unlocks:[1,2],session:null,attendance:[],releases:[],attempts:[],requests:[],grants:[],revisions:[],notes:{},enrolled:[{id:'student-demo',display_name:'Demo Student',registration_no:'MCA26001'},{id:'student-2',display_name:'Asha',registration_no:'MCA26002'}],registered:true};
       demo.labsUnlocked??=[1,2];demo.labDone??=[];await refresh();
-    }else if(api.session){await checkPlatform();if(platformStatus.account_disabled){root.innerHTML='<section class="auth"><div class="card"><h2>Account suspended</h2><p>Contact your Academy administrator to restore access.</p><button class="btn outline" data-action="logout">Sign out</button></div></section>'}else if(platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else{await claimDevice();await refresh()}}else{await checkPlatform();render()};
+    }else if(api.session){await checkPlatform();if(platformStatus.account_disabled){root.innerHTML='<section class="auth"><div class="card"><h2>Account suspended</h2><p>Contact your Academy administrator to restore access.</p><button class="btn outline" data-action="logout">Sign out</button></div></section>'}else if(platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else{await claimDevice();await refresh();if(state.page==='students'&&isAdmin()){await loadStudentRoster();render()}finishWorkspaceRestore()}}else{await checkPlatform();render()};
     if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     if(!demoMode)setInterval(async()=>{const before=platformStatus.maintenance_enabled,wasDisabled=platformStatus.account_disabled;await checkPlatform();if(before!==platformStatus.maintenance_enabled||wasDisabled!==platformStatus.account_disabled){if(api.session&&platformStatus.account_disabled){render()}else if(api.session&&platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else if(api.session){try{await refresh()}catch(e){notice(e.message)}}else render()}},30000);
     timer=setInterval(async()=>{if(!document.hidden&&!demoMode&&api.session&&!state.busy&&!state.modal&&['classroom','reports','requests','dashboard'].includes(state.page)){
@@ -107,15 +173,29 @@ function demoData(){const courseId='course-demo',offeringId='offering-demo';
 }
 async function claimDevice(){const valid=await api.rpc('academy_claim_device',{p_device:deviceId(),p_label:navigator.platform||'Browser'});state.deviceBlocked=valid===false;return valid}
 async function refresh(paint=true){
+ const previousFingerprint=paint?null:liveFingerprint(data);
+ const previousScroll=paint?null:window.scrollY;
  if(demoMode){data=demoData()}else{await checkPlatform();if(platformStatus.account_disabled)throw Error('Your Academy account has been suspended. Contact the administrator.');if(platformStatus.maintenance_enabled&&!platformStatus.is_admin){maintenanceScreen();return}data=await api.load()}
+ if(state.offeringId&&state.offeringId!==data.offeringId){
+  state.hour=1;state.unit=1;state.manualUnit=1;state.manualTopic=null;state.labNo=0;
+  state.sessionLesson=null;state.selectedActivity=null;state.choice=null;state.ordering=[];state.draftReleaseId=null;
+ }
+ state.offeringId=data.offeringId;
+ if(['admin','students'].includes(state.page)&&!isAdmin())state.page='dashboard';
  if(state.hour&&!getLesson(state.hour))state.hour=accessibleLessons()[0]?.teaching_hour||1;
  if(!isFaculty()){state.selectedLessons=[];state.topicsOpen=false;}
  if(!accessibleLessons().some(l=>l.unit_no===state.unit))state.unit=accessibleLessons()[0]?.unit_no||1;
  if(state.labNo&&!labByNo(state.labNo))state.labNo=0;
- if(!state.sessionLesson)state.sessionLesson=currentLesson()?.id;
+ if(!state.sessionLesson||!data.lessons.some(l=>l.id===state.sessionLesson))state.sessionLesson=currentLesson()?.id;
+ if(state.selectedActivity&&!data.releases.some(r=>r.id===state.selectedActivity&&r.session_id===liveSession()?.id))state.selectedActivity=null;
+ const releaseId=selectedRelease()?.id||null;
+ if(state.draftReleaseId!==releaseId){state.choice=null;state.ordering=[];}
+ state.draftReleaseId=releaseId;
  if(!demoMode)await loadRevealedAnswer();
- if(!state.offeringId)state.offeringId=data.offeringId;
- if(paint)render();else if(state.page==='classroom'||state.page==='reports'||state.page==='requests')render();
+ if(paint)render();
+ else if(['classroom','reports','requests','dashboard'].includes(state.page)&&previousFingerprint!==liveFingerprint(data)){
+  render();window.scrollTo(0,previousScroll);storeWorkspace();
+ }
 }
 function render(){
  if(!demoMode&&!api.session){renderAuth();return}
@@ -132,6 +212,7 @@ function render(){
   page=state.page==='students'&&isAdmin()?studentsPage():state.page==='admin'&&isAdmin()?adminPage():state.page==='dashboard'?(isFaculty()?dashboard():studentDashboard()):state.page==='lessons'?lessonsPage():state.page==='manual'?manualPage():state.page==='lab'?labPage():state.page==='classroom'?classroom():state.page==='practice'?practice():state.page==='requests'?requests():state.page==='revisions'?revisions():state.page==='reports'?reports():settings();
  }
  root.innerHTML=(!demoMode&&platformStatus.maintenance_enabled&&isAdmin()?'<div class="preview-banner">Development Mode is ON — student and faculty access is temporarily paused.</div>':'')+(demoMode?'<div class="preview-banner">Interactive demo only — simulated class data. No real student account, attendance or grades are stored on a server.</div>':'')+`<div class="layout ${state.sidebarCollapsed?'sidebar-collapsed':''}"><button type="button" class="sidebar-scrim ${state.smallMenu?'visible':''}" data-action="close-menu" aria-label="Close navigation"></button><aside id="academy-sidebar" class="sidebar ${state.smallMenu?'open':''}" aria-label="Main navigation"><div class="side-top"><div class="side-logo"><img alt="g2r2 Academy" src="./assets/academy-logo.webp"></div><button type="button" class="sidebar-toggle-desktop" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}" aria-expanded="${!state.sidebarCollapsed}" aria-controls="academy-sidebar" title="${state.sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}">${state.sidebarCollapsed?'→':'←'}</button><button type="button" class="sidebar-close-mobile" data-action="close-menu" aria-label="Close navigation menu" title="Close menu">✕</button></div><div class="side-group">WORKSPACE</div><nav class="nav">${menu}</nav><div class="side-bottom"><div class="side-account">${E(data.me.display_name)}<br><small>${E(data.me.registration_no||data.me.email)}</small></div><strong>a g2r2 venture</strong></div></aside><div class="shell"><header class="topbar">${head}</header><main class="page">${page}</main><footer class="footer">Made for curious minds · a g2r2 venture</footer></div></div><nav class="bottomnav">${['dashboard','manual','lab','classroom','settings'].map(p=>`<button data-page="${p}"><span>${icons[p]}</span>${p==='classroom'?'Class':p==='lab'?'Lab':p==='manual'?'Manual':p==='dashboard'?'Home':p[0].toUpperCase()+p.slice(1)}</button>`).join('')}</nav>`+(state.modal?renderModal(): '');
+ storeWorkspace();
 }
 function renderPreviewLogin(){root.innerHTML=`<section class="academy-login"><div class="preview-banner">Offline interaction preview · no actual login or database connection</div><div class="login-container"><div class="login-identity"><img src="./assets/academy-logo.webp" alt="g2r2 Academy"><span class="eyebrow">MCA · SEMESTER II · 25PCA2CP03</span><h1>Make something brilliant.</h1><p>Welcome to g2r2 Academy. Study Dart and Flutter, and explore practical experiments in a focused learning space.</p><div class="login-art"><span>YOUR CLASSROOM. YOUR LAB.</span><strong>Build • Explore • Create</strong></div></div><div class="login-panel"><span class="eyebrow">ACADEMY ACCESS</span><h2>Welcome back.</h2><p>In the live Academy, students sign in using their registration number or verified email and password. Preview below without entering credentials.</p><div class="login-demo-fields"><label>Registration number / email<input aria-label="Registration number or email" value="" placeholder="e.g. MCA26001" disabled></label><label>Password<input aria-label="Password" type="password" placeholder="••••••••" disabled></label></div><button class="btn primary login-btn" data-action="preview-student">Explore student dashboard →</button><button class="btn outline login-btn" data-action="preview-faculty">Explore faculty dashboard →</button><p class="login-disclaimer">No credentials are collected in this offline demonstration.</p><span class="venture">a g2r2 venture</span></div></div></section>`}
 function title(eyebrow,name,subtitle){return `<div class="eyebrow">${E(eyebrow)}</div><h1 class="page-title">${E(name)}</h1><p class="subtitle">${E(subtitle)}</p>`}
@@ -479,7 +560,7 @@ Type the exact registration number to confirm:`);if(confirmation===null)return;i
  'remove-device':async el=>{if(demoMode){notice('Not applicable to demo');return}await api.rpc('academy_release_device',{p_device:el.dataset.id});await refresh();notice('Device removed')},
  'claim-device':async()=>{if(!demoMode){await claimDevice();await refresh()}},
  'maintenance-refresh':async()=>{await checkPlatform();if(api.session&&platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else if(api.session)await refresh();else render()},
- 'logout':async()=>{if(demoMode){state.demoGate=!!window.ACADEMY_PREVIEW_LOGIN;sessionStorage.removeItem('academy-preview-session');state.page='dashboard';render();return}else{await api.signOut();data=null;state.deviceBlocked=false;render()}},
+ 'logout':async()=>{if(demoMode){state.demoGate=!!window.ACADEMY_PREVIEW_LOGIN;sessionStorage.removeItem('academy-preview-session');state.page='dashboard';render();return}else{clearWorkspace();await api.signOut();data=null;state.deviceBlocked=false;render()}},
  'create-activity':async()=>{state.modal='create-activity';render()},
 };
 async function loadRevealedAnswer(){if(demoMode)return;state.revealAnswers??={};const r=selectedRelease();if(r?.revealed_at){try{state.revealAnswers[r.id]=await api.rpc('academy_revealed_answer',{p_release:r.id})}catch{}}}
@@ -488,7 +569,7 @@ async function handleForm(form){const val=Object.fromEntries(new FormData(form).
  if(type==='student-edit'){const student=rosterStudent(val.student_id);await manageStudent('edit',student,{name:val.name,registration_no:val.registration_no});state.modal='';render();return}
  if(type==='student-password'){const student=rosterStudent(val.student_id);await manageStudent('reset_password',student,{password:val.password});form.reset();state.modal='';render();return}
  if(type==='maintenance'){if(!isAdmin())throw Error('Administrator access required');const enable=val.enabled==='true';if(enable&&!confirm('Enable Development Mode? Students and faculty will temporarily lose access.'))return;platformStatus=await api.rpc('academy_admin_set_maintenance',{p_enabled:enable,p_message:val.message});await refresh();notice(enable?'Development Mode enabled':'Academy is live');return}
- if(type==='signin'){try{await api.signIn(val.email,val.password);await checkPlatform();if(platformStatus.account_disabled){await api.signOut();throw Error('Your Academy account is suspended. Contact the administrator.')}if(platformStatus.maintenance_enabled&&!platformStatus.is_admin){maintenanceScreen();return}await claimDevice();await refresh()}catch(e){state.authResult=e.message;render()}return}
+ if(type==='signin'){try{await api.signIn(val.email,val.password);restoreWorkspace();await checkPlatform();if(platformStatus.account_disabled){await api.signOut();throw Error('Your Academy account is suspended. Contact the administrator.')}if(platformStatus.maintenance_enabled&&!platformStatus.is_admin){maintenanceScreen();return}await claimDevice();await refresh();if(state.page==='students'&&isAdmin()){await loadStudentRoster();render()}finishWorkspaceRestore()}catch(e){state.authResult=e.message;render()}return}
  if(type==='signup'){const r=await api.signUp(val);state.authResult=r.session?'Account created. You may sign in.':'Check your email to verify your account, then sign in.';state.loginMode='signin';render();return}
  if(type==='reset'){await api.resetPassword(val.email);state.authResult='If your email is registered, a recovery link has been sent.';state.loginMode='signin';render();return}
  if(type==='request'){let l=val.lesson_id||null;if(demoMode){demo.requests.unshift({id:'req-'+uuid(),offering_id:data.offeringId,student_id:data.me.user_id,lesson_id:l,request_type:val.request_type,message:val.message,status:'pending',created_at:isoNow()});saveDemo()}
