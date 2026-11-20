@@ -42,6 +42,103 @@ let platformStatus={maintenance_enabled:false,message:'We are improving g2r2 Aca
 let importPreview=[];let importFilename='';let importResults=[];
 let studentRoster={students:[],count:0,page:0,page_size:30};let studentSearch='';let studentFilter='all';let studentLoading=false;let studentError='';
 
+let selectedStudentIds=new Set(),selectedStudentRows=new Map(),studentBulkProgress=null,studentBulkResult='';
+const studentBulkActions={enroll:'Enroll in class',withdraw:'Remove from class',suspend:'Suspend accounts',restore:'Restore accounts',delete:'Permanently delete accounts'};
+function clearStudentSelection(){selectedStudentIds.clear();selectedStudentRows.clear();studentBulkProgress=null;studentBulkResult=''}
+function selectStudent(student,selected){
+ if(!student)return;
+ if(selected){selectedStudentIds.add(student.user_id);selectedStudentRows.set(student.user_id,student)}
+ else{selectedStudentIds.delete(student.user_id);selectedStudentRows.delete(student.user_id)}
+ studentBulkResult='';
+}
+function syncStudentSelectionHeader(){
+ const control=$('#students-select-page');if(!control)return;
+ const rows=studentRoster.students||[];
+ const n=rows.filter(s=>selectedStudentIds.has(s.user_id)).length;
+ control.checked=rows.length>0&&n===rows.length;
+ control.indeterminate=n>0&&n<rows.length;
+}
+function studentSelectionToolbar(total){
+ const count=selectedStudentIds.size;
+ const progress=studentBulkProgress?'<p class="student-bulk-progress" role="status">Processing '+E(studentBulkProgress.label)+' — '+studentBulkProgress.done+' of '+studentBulkProgress.total+' completed</p>':'';
+ const result=studentBulkResult?'<p class="student-bulk-result" role="status">'+E(studentBulkResult)+'</p>':'';
+ const options=Object.entries(studentBulkActions).map(([key,label])=>'<option value="'+key+'">'+E(label)+'</option>').join('');
+ return '<section class="student-selection-bar" aria-label="Select and manage multiple students">'+
+ '<div class="student-selection-summary"><strong>'+count+' selected</strong><span>Select individual students, the current page, or every matching student across pages.</span></div>'+
+ '<div class="student-selection-controls">'+
+ '<button class="btn small outline" data-action="student-select-matching" '+(!total||studentBulkProgress?'disabled':'')+'>Select all '+total+' matching</button>'+
+ '<button class="btn small outline" data-action="student-clear-selection" '+(!count||studentBulkProgress?'disabled':'')+'>Clear selection</button>'+
+ '<label class="student-bulk-label">Bulk action <select id="student-bulk-action" '+(!count||studentBulkProgress?'disabled':'')+'><option value="">Choose an action…</option>'+options+'</select></label>'+
+ '<button class="btn small primary" data-action="student-bulk-apply" '+(!count||studentBulkProgress?'disabled':'')+'>Apply to '+count+'</button></div>'+progress+result+'</section>';
+}
+async function selectAllMatchingStudents(){
+ if(!isAdmin())throw Error('Administrator access required');
+ const count=Number(studentRoster.count)||0;if(!count)return;
+ if(count>500)throw Error('Select all matching supports up to 500 students at once. Narrow the search or filter first.');
+ const pageSize=studentRoster.page_size||30,pages=Math.ceil(count/pageSize),collected=[];
+ for(let start=0;start<pages;start+=3){
+  const indices=Array.from({length:Math.min(3,pages-start)},(_,i)=>start+i);
+  const responses=await Promise.all(indices.map(page=>api.request('/functions/v1/academy-admin-students',{method:'POST',body:{action:'list',offering_id:data.offeringId,search:studentSearch,status:studentFilter,page}})));
+  for(const response of responses){
+   if(Number(response.count)!==count)throw Error('Student directory changed during selection. Refresh the list and try again.');
+   collected.push(...(response.students||[]));
+  }
+ }
+ if(collected.length!==count)throw Error('Not all matching students were loaded. Refresh the list and try again.');
+ for(const student of collected)selectStudent(student,true);
+ render();
+ notice('Selected all '+count+' matching students across '+pages+' page'+(pages===1?'':'s'));
+}
+function studentEligibleFor(action,student){
+ if(action==='enroll')return !student.account_disabled&&student.enrollment_status!=='active';
+ if(action==='withdraw')return student.enrollment_status==='active';
+ if(action==='suspend')return !student.account_disabled;
+ if(action==='restore')return !!student.account_disabled;
+ return action==='delete';
+}
+async function applyStudentBulkAction(action){
+ if(!isAdmin()||!Object.hasOwn(studentBulkActions,action))throw Error('Choose a bulk action first');
+ const selected=[...selectedStudentIds].map(id=>selectedStudentRows.get(id)).filter(Boolean);
+ if(!selected.length)throw Error('Select at least one student');
+ const eligible=selected.filter(s=>studentEligibleFor(action,s));
+ const skipped=selected.length-eligible.length;
+ if(!eligible.length)throw Error('No selected students are eligible for this action');
+ const label=studentBulkActions[action],count=eligible.length;
+ const suffix=skipped?' ('+skipped+' ineligible selection'+(skipped===1?'':'s')+' will be skipped)':'';
+ if(action==='delete'){
+  const phrase='DELETE '+count+' STUDENTS';
+  const typed=prompt('PERMANENT DELETION: '+count+' student account'+(count===1?'':'s')+' and all associated learning records will be removed. This cannot be undone.\n\nType exactly '+phrase+' to continue:');
+  if(typed!==phrase){if(typed!==null)notice('Confirmation did not match; no students were deleted');return}
+  if(!confirm('Final confirmation: permanently delete '+count+' student account'+(count===1?'':'s')+' and their learning records?'))return;
+ }else{
+  const detail=action==='withdraw'?'Their accounts and learning history will be kept.':action==='suspend'?'These students will lose Academy access until restored.':'';
+  if(!confirm(label+' for '+count+' selected student'+(count===1?'':'s')+'?'+suffix+(detail?'\n'+detail:'')))return;
+ }
+ studentBulkResult='';
+ studentBulkProgress={label,done:0,total:count};
+ render();
+ const failures=[];
+ for(let start=0;start<count;start+=3){
+  const batch=eligible.slice(start,start+3);
+  const results=await Promise.allSettled(batch.map(student=>api.request('/functions/v1/academy-admin-students',{method:'POST',body:{action,student_id:student.user_id,offering_id:data.offeringId,...(action==='delete'?{confirmation:student.registration_no}:{})}})));
+  results.forEach((r,i)=>{
+   const student=batch[i];
+   if(r.status==='fulfilled'){selectedStudentIds.delete(student.user_id);selectedStudentRows.delete(student.user_id)}
+   else failures.push((student.display_name||student.registration_no||student.user_id)+': '+(r.reason?.message||'Request failed'));
+  });
+  studentBulkProgress.done=Math.min(start+batch.length,count);
+  render();
+ }
+ studentBulkProgress=null;
+ studentBulkResult=(count-failures.length)+' succeeded, '+failures.length+' failed'+(skipped?', '+skipped+' skipped':'')+'.'+(failures.length?' Failed: '+failures.slice(0,3).join('; ')+(failures.length>3?' (and '+(failures.length-3)+' more)':''):'');
+ await loadStudentRoster();
+ const maxPage=Math.max(0,Math.ceil((studentRoster.count||0)/(studentRoster.page_size||30))-1);
+ if(studentRoster.page>maxPage){studentRoster.page=maxPage;await loadStudentRoster()}
+ render();
+ notice(failures.length?'Bulk action finished with '+failures.length+' errors':count+' student'+(count===1?'':'s')+' updated');
+}
+
+
 const workspaceKey='g2r2-academy-workspace-v1';
 const workspacePages=new Set(['dashboard','admin','students','lessons','manual','lab','classroom','practice','requests','revisions','reports','settings']);
 let pendingWorkspaceScroll=null;
@@ -212,6 +309,7 @@ function render(){
   page=state.page==='students'&&isAdmin()?studentsPage():state.page==='admin'&&isAdmin()?adminPage():state.page==='dashboard'?(isFaculty()?dashboard():studentDashboard()):state.page==='lessons'?lessonsPage():state.page==='manual'?manualPage():state.page==='lab'?labPage():state.page==='classroom'?classroom():state.page==='practice'?practice():state.page==='requests'?requests():state.page==='revisions'?revisions():state.page==='reports'?reports():settings();
  }
  root.innerHTML=(!demoMode&&platformStatus.maintenance_enabled&&isAdmin()?'<div class="preview-banner">Development Mode is ON — student and faculty access is temporarily paused.</div>':'')+(demoMode?'<div class="preview-banner">Interactive demo only — simulated class data. No real student account, attendance or grades are stored on a server.</div>':'')+`<div class="layout ${state.sidebarCollapsed?'sidebar-collapsed':''}"><button type="button" class="sidebar-scrim ${state.smallMenu?'visible':''}" data-action="close-menu" aria-label="Close navigation"></button><aside id="academy-sidebar" class="sidebar ${state.smallMenu?'open':''}" aria-label="Main navigation"><div class="side-top"><div class="side-logo"><img alt="g2r2 Academy" src="./assets/academy-logo.webp"></div><button type="button" class="sidebar-toggle-desktop" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}" aria-expanded="${!state.sidebarCollapsed}" aria-controls="academy-sidebar" title="${state.sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}">${state.sidebarCollapsed?'→':'←'}</button><button type="button" class="sidebar-close-mobile" data-action="close-menu" aria-label="Close navigation menu" title="Close menu">✕</button></div><div class="side-group">WORKSPACE</div><nav class="nav">${menu}</nav><div class="side-bottom"><div class="side-account">${E(data.me.display_name)}<br><small>${E(data.me.registration_no||data.me.email)}</small></div><strong>a g2r2 venture</strong></div></aside><div class="shell"><header class="topbar">${head}</header><main class="page">${page}</main><footer class="footer">Made for curious minds · a g2r2 venture</footer></div></div><nav class="bottomnav">${['dashboard','manual','lab','classroom','settings'].map(p=>`<button data-page="${p}"><span>${icons[p]}</span>${p==='classroom'?'Class':p==='lab'?'Lab':p==='manual'?'Manual':p==='dashboard'?'Home':p[0].toUpperCase()+p.slice(1)}</button>`).join('')}</nav>`+(state.modal?renderModal(): '');
+ if(state.page==='students'&&isAdmin())syncStudentSelectionHeader();
  storeWorkspace();
 }
 function renderPreviewLogin(){root.innerHTML=`<section class="academy-login"><div class="preview-banner">Offline interaction preview · no actual login or database connection</div><div class="login-container"><div class="login-identity"><img src="./assets/academy-logo.webp" alt="g2r2 Academy"><span class="eyebrow">MCA · SEMESTER II · 25PCA2CP03</span><h1>Make something brilliant.</h1><p>Welcome to g2r2 Academy. Study Dart and Flutter, and explore practical experiments in a focused learning space.</p><div class="login-art"><span>YOUR CLASSROOM. YOUR LAB.</span><strong>Build • Explore • Create</strong></div></div><div class="login-panel"><span class="eyebrow">ACADEMY ACCESS</span><h2>Welcome back.</h2><p>In the live Academy, students sign in using their registration number or verified email and password. Preview below without entering credentials.</p><div class="login-demo-fields"><label>Registration number / email<input aria-label="Registration number or email" value="" placeholder="e.g. MCA26001" disabled></label><label>Password<input aria-label="Password" type="password" placeholder="••••••••" disabled></label></div><button class="btn primary login-btn" data-action="preview-student">Explore student dashboard →</button><button class="btn outline login-btn" data-action="preview-faculty">Explore faculty dashboard →</button><p class="login-disclaimer">No credentials are collected in this offline demonstration.</p><span class="venture">a g2r2 venture</span></div></div></section>`}
@@ -401,7 +499,7 @@ function reports(){if(!isFaculty())return title('LEARNING RECORD','My classroom 
 async function loadStudentRoster(){
  if(!isAdmin())throw Error('Administrator access required');
  studentLoading=true;studentError='';
- try{studentRoster=await api.request('/functions/v1/academy-admin-students',{method:'POST',body:{action:'list',offering_id:data.offeringId,search:studentSearch,status:studentFilter,page:studentRoster.page}})}
+ try{studentRoster=await api.request('/functions/v1/academy-admin-students',{method:'POST',body:{action:'list',offering_id:data.offeringId,search:studentSearch,status:studentFilter,page:studentRoster.page}});for(const student of studentRoster.students||[])if(selectedStudentIds.has(student.user_id))selectedStudentRows.set(student.user_id,student)}
  catch(err){studentError=err.message;studentRoster={students:[],count:0,page:0,page_size:30};}
  finally{studentLoading=false}
 }
@@ -409,9 +507,9 @@ function studentsPage(){
  if(!isAdmin())return '<div class="card">Administrator access required.</div>';
  const rows=studentRoster.students||[];const total=studentRoster.count||0;const page=studentRoster.page||0;const pages=Math.max(1,Math.ceil(total/(studentRoster.page_size||30)));
  const body=rows.map(s=>{const status=s.account_disabled?'Suspended':'Active',en=s.enrollment_status||'not_enrolled';
- return `<tr><td><strong>${E(s.display_name)}</strong><small class="student-sub">${E(s.registration_no||'No registration number')}</small></td><td><span class="badge ${s.account_disabled?'locked':'live'}">${status}</span></td><td>${en==='active'?'Enrolled':en==='withdrawn'?'Withdrawn':'Not enrolled'}</td><td><div class="student-actions"><button class="btn small outline" data-action="student-edit" data-id="${E(s.user_id)}">Edit</button>${en==='active'?`<button class="btn small outline" data-action="student-withdraw" data-id="${E(s.user_id)}">Remove from class</button>`:`<button class="btn small blue" data-action="student-enroll" data-id="${E(s.user_id)}" ${s.account_disabled?'disabled':''}>Enroll</button>`}<button class="btn small ${s.account_disabled?'blue':'outline'}" data-action="${s.account_disabled?'student-restore':'student-suspend'}" data-id="${E(s.user_id)}">${s.account_disabled?'Restore':'Suspend'}</button><button class="btn small outline" data-action="student-password" data-id="${E(s.user_id)}">Reset password</button><button class="btn small danger" data-action="student-delete" data-id="${E(s.user_id)}">Delete</button></div></td></tr>`}).join('');
- return title('STUDENT DIRECTORY','Manage students','Manage individual Academy accounts and their enrollment in the selected class.')+
- `<div class="card"><div class="row wrap"><div><h2>Student directory</h2><p>Remove from class without deleting records, suspend access, edit details, reset passwords, or permanently delete an account.</p></div><button class="btn outline" data-action="student-refresh">Refresh list</button></div><div class="student-filters"><label class="field">Search name or registration number<input id="student-search" value="${E(studentSearch)}" placeholder="Search students" autocomplete="off"></label><label class="field">Filter<select id="student-status-filter">${[['all','All students'],['active','Active accounts'],['suspended','Suspended accounts'],['enrolled','Enrolled in class'],['withdrawn','Withdrawn from class']].map(([v,t])=>`<option value="${v}" ${studentFilter===v?'selected':''}>${t}</option>`).join('')}</select></label><button class="btn primary" data-action="student-search">Search</button></div>${studentError?`<div class="warning">${E(studentError)}</div>`:''}<p class="hint">${total} matching students · Showing page ${page+1} of ${pages}. Permanent deletion removes the account and its learning records; use “Remove from class” when you only want to unenroll.</p><div class="admin-preview-scroll"><table class="admin-table"><thead><tr><th>Student</th><th>Account</th><th>Current class</th><th>Manage</th></tr></thead><tbody>${body||`<tr><td colspan="4">${studentLoading?'Loading students…':'No matching students.'}</td></tr>`}</tbody></table></div><div class="buttons"><button class="btn outline" data-action="student-page" data-dir="-1" ${page===0?'disabled':''}>Previous</button><button class="btn outline" data-action="student-page" data-dir="1" ${page+1>=pages?'disabled':''}>Next</button><button class="btn blue" data-page="admin">Import more students</button></div></div>`;
+ return `<tr class="${selectedStudentIds.has(s.user_id)?'student-row-selected':''}"><td class="student-select-cell"><input type="checkbox" data-select-student="${E(s.user_id)}" aria-label="Select ${E(s.display_name)}" ${selectedStudentIds.has(s.user_id)?'checked':''}></td><td><strong>${E(s.display_name)}</strong><small class="student-sub">${E(s.registration_no||'No registration number')}</small></td><td><span class="badge ${s.account_disabled?'locked':'live'}">${status}</span></td><td>${en==='active'?'Enrolled':en==='withdrawn'?'Withdrawn':'Not enrolled'}</td><td><div class="student-actions"><button class="btn small outline" data-action="student-edit" data-id="${E(s.user_id)}">Edit</button>${en==='active'?`<button class="btn small outline" data-action="student-withdraw" data-id="${E(s.user_id)}">Remove from class</button>`:`<button class="btn small blue" data-action="student-enroll" data-id="${E(s.user_id)}" ${s.account_disabled?'disabled':''}>Enroll</button>`}<button class="btn small ${s.account_disabled?'blue':'outline'}" data-action="${s.account_disabled?'student-restore':'student-suspend'}" data-id="${E(s.user_id)}">${s.account_disabled?'Restore':'Suspend'}</button><button class="btn small outline" data-action="student-password" data-id="${E(s.user_id)}">Reset password</button><button class="btn small danger" data-action="student-delete" data-id="${E(s.user_id)}">Delete</button></div></td></tr>`}).join('');
+ return title('STUDENT DIRECTORY','Manage students','Select individual students, a full page, or all matching students to manage accounts together.')+
+ `<div class="card"><div class="row wrap"><div><h2>Student directory</h2><p>Remove from class without deleting records, suspend access, edit details, reset passwords, or permanently delete an account.</p></div><button class="btn outline" data-action="student-refresh">Refresh list</button></div><div class="student-filters"><label class="field">Search name or registration number<input id="student-search" value="${E(studentSearch)}" placeholder="Search students" autocomplete="off"></label><label class="field">Filter<select id="student-status-filter">${[['all','All students'],['active','Active accounts'],['suspended','Suspended accounts'],['enrolled','Enrolled in class'],['withdrawn','Withdrawn from class']].map(([v,t])=>`<option value="${v}" ${studentFilter===v?'selected':''}>${t}</option>`).join('')}</select></label><button class="btn primary" data-action="student-search">Search</button></div>${studentSelectionToolbar(total)}${studentError?`<div class="warning">${E(studentError)}</div>`:''}<p class="hint">${total} matching students · Showing page ${page+1} of ${pages}. Permanent deletion removes the account and its learning records; use “Remove from class” when you only want to unenroll.</p><div class="admin-preview-scroll"><table class="admin-table student-directory-table"><thead><tr><th class="student-select-cell"><input type="checkbox" id="students-select-page" aria-label="Select all students on this page" ${rows.length&&rows.every(s=>selectedStudentIds.has(s.user_id))?'checked':''} ${rows.length?'':'disabled'}></th><th>Student</th><th>Account</th><th>Current class</th><th>Manage</th></tr></thead><tbody>${body||`<tr><td colspan="5">${studentLoading?'Loading students…':'No matching students.'}</td></tr>`}</tbody></table></div><div class="buttons"><button class="btn outline" data-action="student-page" data-dir="-1" ${page===0?'disabled':''}>Previous</button><button class="btn outline" data-action="student-page" data-dir="1" ${page+1>=pages?'disabled':''}>Next</button><button class="btn blue" data-page="admin">Import more students</button></div></div>`;
 }
 function rosterStudent(id){return studentRoster.students.find(x=>x.user_id===id)}
 async function manageStudent(action,student,extra={}){
@@ -474,8 +572,11 @@ function renderModal(){const m=state.modal;if(!m)return'';let content='';if(m.st
  return `<div class="modal-bg" data-action="close-modal-bg"><div class="modal"><div class="row"><span class="eyebrow">g2r2 Academy</span><button data-action="close-modal" class="btn small outline">✕</button></div>${content}</div></div>`;
 }
 const actions={
+ 'student-select-matching':async()=>{await selectAllMatchingStudents()},
+ 'student-clear-selection':async()=>{clearStudentSelection();render()},
+ 'student-bulk-apply':async()=>{await applyStudentBulkAction($('#student-bulk-action')?.value||'')},
  'student-refresh':async()=>{await loadStudentRoster();render()},
- 'student-search':async()=>{studentSearch=($('#student-search')?.value||'').trim();studentRoster.page=0;await loadStudentRoster();render()},
+ 'student-search':async()=>{const query=($('#student-search')?.value||'').trim();if(query!==studentSearch)clearStudentSelection();studentSearch=query;studentRoster.page=0;await loadStudentRoster();render()},
  'student-page':async el=>{studentRoster.page=Math.max(0,studentRoster.page+Number(el.dataset.dir));await loadStudentRoster();render()},
  'student-edit':async el=>{state.modal='student-edit:'+el.dataset.id;render()},
  'student-password':async el=>{state.modal='student-password:'+el.dataset.id;render()},
@@ -560,7 +661,7 @@ Type the exact registration number to confirm:`);if(confirmation===null)return;i
  'remove-device':async el=>{if(demoMode){notice('Not applicable to demo');return}await api.rpc('academy_release_device',{p_device:el.dataset.id});await refresh();notice('Device removed')},
  'claim-device':async()=>{if(!demoMode){await claimDevice();await refresh()}},
  'maintenance-refresh':async()=>{await checkPlatform();if(api.session&&platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else if(api.session)await refresh();else render()},
- 'logout':async()=>{if(demoMode){state.demoGate=!!window.ACADEMY_PREVIEW_LOGIN;sessionStorage.removeItem('academy-preview-session');state.page='dashboard';render();return}else{clearWorkspace();await api.signOut();data=null;state.deviceBlocked=false;render()}},
+ 'logout':async()=>{clearStudentSelection();if(demoMode){state.demoGate=!!window.ACADEMY_PREVIEW_LOGIN;sessionStorage.removeItem('academy-preview-session');state.page='dashboard';render();return}else{clearWorkspace();await api.signOut();data=null;state.deviceBlocked=false;render()}},
  'create-activity':async()=>{state.modal='create-activity';render()},
 };
 async function loadRevealedAnswer(){if(demoMode)return;state.revealAnswers??={};const r=selectedRelease();if(r?.revealed_at){try{state.revealAnswers[r.id]=await api.rpc('academy_revealed_answer',{p_release:r.id})}catch{}}}
@@ -618,7 +719,9 @@ function handlePreviewClick(b){const action=b.dataset.demo;if(action==='theme')r
 }
 
 root.addEventListener('change',async e=>{const el=e.target;
- if(el.id==='student-status-filter'){studentFilter=el.value;studentRoster.page=0;await loadStudentRoster();render();return}
+ if(el.id==='students-select-page'){for(const student of studentRoster.students||[])selectStudent(student,el.checked);render();return}
+ if(el.dataset.selectStudent){selectStudent(rosterStudent(el.dataset.selectStudent),el.checked);render();return}
+ if(el.id==='student-status-filter'){clearStudentSelection();studentFilter=el.value;studentRoster.page=0;await loadStudentRoster();render();return}
  if(el.id==='student-import-file'){try{await readStudentFile(el.files?.[0])}catch(err){importPreview=[];notice(err.message||'Cannot read file')}return}
  if(el.id==='demo-dark'){previewState.themeDark=el.checked;refreshLabPreview();return;}
  if(el.dataset.labComplete){if(isFaculty())return;const lab=labByNo(Number(el.dataset.labComplete));if(!lab)return;const done=el.checked;if(demoMode){demo.labDone=done?[...new Set([...demo.labDone,lab.experiment_no])]:demo.labDone.filter(n=>n!==lab.experiment_no);saveDemo()}else await api.request('/rest/v1/lab_completions?on_conflict=offering_id,lab_id,student_id',{method:'POST',body:{offering_id:data.offeringId,lab_id:lab.id,student_id:data.me.user_id,completed:done,completed_at:done?isoNow():null},prefer:'resolution=merge-duplicates,return=minimal'});await refresh();notice(done?'Lab record marked written':'Lab record marked pending');return;}
@@ -627,7 +730,7 @@ root.addEventListener('change',async e=>{const el=e.target;
  if(el.id==='class-lesson'){state.sessionLesson=el.value;render()}
  else if(el.id==='practice-lesson'){state.hour=Number(el.value);state.showHint=false;render()}
  else if(el.id==='release-select'){state.selectedActivity=null}
- else if(el.id==='offering-select'){localStorage.setItem('g2r2-offering',el.value);await refresh()}
+ else if(el.id==='offering-select'){clearStudentSelection();localStorage.setItem('g2r2-offering',el.value);await refresh();if(state.page==='students'&&isAdmin()){studentRoster.page=0;await loadStudentRoster();render()}}
 });
 root.addEventListener('input',e=>{if(e.target.id==='manual-filter'){state.manualSearch=e.target.value;const topics=allManualTopics().filter(t=>manualTopicMatch(t,state.manualSearch));const panel=document.getElementById('manual-results'),mobile=document.getElementById('manual-mobile-results');const results=topics.map(t=>`<button class="manual-index-item" data-action="manual-topic" data-id="${E(t.id)}"><span class="manual-number">${E(t.id)}</span><span>${E(t.title)}</span></button>`).join('')||'<p class="hint">No matching released topics.</p>';if(panel)panel.innerHTML=results;if(mobile)mobile.innerHTML=state.manualSearch.trim()?results:'';return;}if(e.target.id==='lab-filter'){state.labSearch=e.target.value;const cursor=e.target.selectionStart;render();const x=$('#lab-filter');x?.focus();x?.setSelectionRange(cursor,cursor);return;}
  if(e.target.dataset.filter==='lessons'){
