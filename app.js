@@ -229,7 +229,7 @@ const currentCourse=()=>data?.courses?.find(c=>c.id===offered()?.course_id);
 const liveSession=()=>data?.sessions?.find(s=>s.status==='live');
 const myAttendance=sid=>data?.attendance?.some(a=>a.session_id===sid&&a.student_id===data.me.user_id);
 const topicIsUnlocked=l=>isFaculty()||data?.unlocks?.some(x=>x.lesson_id===l?.id&&!x.revoked_at)||data?.grants?.some(g=>g.lesson_id===l?.id&&g.student_id===data.me.user_id&&!g.revoked_at&&(!g.expires_at||new Date(g.expires_at)>new Date()));
-const getActivityForLesson=l=>data?.activities?.filter(a=>a.lesson_id===l?.id)||[];
+const getActivityForLesson=l=>data?.activities?.filter(a=>a.lesson_id===l?.id&&a.approved!==false)||[];
 const displayRole=()=>isAdmin()?'Administrator':isFaculty()?'Faculty':'Student';
 const activeRelease=()=>{let s=liveSession();return s?data?.releases?.find(r=>r.session_id===s.id&&!r.revealed_at)||data?.releases?.find(r=>r.session_id===s.id):null};
 const selectedRelease=()=>data?.releases?.find(r=>r.id===state.selectedActivity)||activeRelease();
@@ -258,7 +258,7 @@ async function init(){
       try{demo=JSON.parse(localStorage.getItem(demoKey)||'null')}catch{}
       if(!demo) demo={role:'faculty',labsUnlocked:[1,2],labDone:[],unlocks:[1,2],session:null,attendance:[],releases:[],attempts:[],requests:[],grants:[],revisions:[],notes:{},enrolled:[{id:'student-demo',display_name:'Demo Student',registration_no:'MCA26001'},{id:'student-2',display_name:'Asha',registration_no:'MCA26002'}],registered:true};
       demo.labsUnlocked??=[1,2];demo.labDone??=[];await refresh();
-    }else if(api.session){await checkPlatform();if(platformStatus.account_disabled){root.innerHTML='<section class="auth"><div class="card"><h2>Account suspended</h2><p>Contact your Academy administrator to restore access.</p><button class="btn outline" data-action="logout">Sign out</button></div></section>'}else if(platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else{await claimDevice();await refresh();if(state.page==='students'&&isAdmin()){await loadStudentRoster();render()}finishWorkspaceRestore()}}else{await checkPlatform();render()};
+    }else if(api.session){await checkPlatform();if(platformStatus.account_disabled){root.innerHTML='<section class="auth"><div class="card"><h2>Account suspended</h2><p>Contact your Academy administrator to restore access.</p><button class="btn outline" data-action="logout">Sign out</button></div></section>'}else if(platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else{await claimDevice();await refresh();if(state.page==='students'&&isAdmin()){await loadStudentRoster();render()}if(state.page==='faculty'&&isAdmin()){await loadFacultyData();render()}if(state.page==='faculty'&&isAdmin()){await loadFacultyData();render()}finishWorkspaceRestore()}}else{await checkPlatform();render()};
     if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     if(!demoMode)setInterval(async()=>{const before=platformStatus.maintenance_enabled,wasDisabled=platformStatus.account_disabled;await checkPlatform();if(before!==platformStatus.maintenance_enabled||wasDisabled!==platformStatus.account_disabled){if(api.session&&platformStatus.account_disabled){render()}else if(api.session&&platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else if(api.session){try{await refresh()}catch(e){notice(e.message)}}else render()}},30000);
     timer=setInterval(async()=>{if(!document.hidden&&!demoMode&&api.session&&!state.busy&&!state.modal&&['classroom','reports','requests','dashboard'].includes(state.page)){
@@ -303,7 +303,7 @@ async function refresh(paint=true){
  if(!isFaculty()){state.selectedLessons=[];state.topicsOpen=false;}
  if(!accessibleLessons().some(l=>l.unit_no===state.unit))state.unit=accessibleLessons()[0]?.unit_no||1;
  if(state.labNo&&!labByNo(state.labNo))state.labNo=0;
- if(!state.sessionLesson||!data.lessons.some(l=>l.id===state.sessionLesson))state.sessionLesson=currentLesson()?.id;
+ if(!state.sessionLesson||!data.lessons.some(l=>l.id===state.sessionLesson))state.sessionLesson=currentLesson()?.id||null;
  if(state.selectedActivity&&!data.releases.some(r=>r.id===state.selectedActivity&&r.session_id===liveSession()?.id))state.selectedActivity=null;
  const releaseId=selectedRelease()?.id||null;
  if(state.draftReleaseId!==releaseId){state.choice=null;state.ordering=[];}
