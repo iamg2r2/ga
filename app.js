@@ -183,27 +183,9 @@ function storeWorkspace(){
  }catch(err){console.warn('Could not save workspace position',err)}
 }
 function restoreWorkspace(){
- if(demoMode||!api?.userId)return;
+ // Always land on the course chooser after authentication; don't restore an old course page.
  state.page='courses';
- return;
- /*
- let saved;try{saved=JSON.parse(sessionStorage.getItem(workspaceKey)||'null')}catch{return}
- if(!saved||saved.userId!==api.userId||!workspacePages.has(saved.page))return;
- state.page=saved.page;
- for(const key of ['unit','hour','manualUnit','labNo']){
-  if(Number.isInteger(saved[key])&&saved[key]>=0&&saved[key]<1000)state[key]=saved[key];
- }
- for(const key of ['manualTopic','labTab','sessionLesson','selectedActivity']){
-  if(typeof saved[key]==='string'||saved[key]===null)state[key]=saved[key];
- }
- if(saved.choice===null||Number.isInteger(saved.choice))state.choice=saved.choice;
- if(Array.isArray(saved.ordering))state.ordering=saved.ordering.filter(x=>Number.isInteger(x)&&x>=0&&x<100).slice(0,100);
- if(saved.manualAnswers&&typeof saved.manualAnswers==='object'&&!Array.isArray(saved.manualAnswers))state.manualAnswers=saved.manualAnswers;
- if(Array.isArray(saved.selectedLessons))state.selectedLessons=saved.selectedLessons.filter(x=>typeof x==='string').slice(0,100);
- state.draftReleaseId=typeof saved.draftReleaseId==='string'?saved.draftReleaseId:null;
- state.offeringId=typeof saved.offeringId==='string'?saved.offeringId:null;
- pendingWorkspaceScroll=Number.isFinite(saved.scrollY)&&saved.scrollY>=0?saved.scrollY:null;
- */
+ pendingWorkspaceScroll=null;
 }
 function finishWorkspaceRestore(){
  if(pendingWorkspaceScroll===null)return;
@@ -222,7 +204,7 @@ window.addEventListener('pagehide',storeWorkspace);
 function liveFingerprint(d){
  if(!d)return '';
  return JSON.stringify({
-  offeringId:d.offeringId,sessions:d.sessions,attendance:d.attendance,
+  offeringId:d.offeringId,courseAlerts:d.courseAlerts,sessions:d.sessions,attendance:d.attendance,
   releases:d.releases,attempts:d.attempts,activities:d.activities,
   unlocks:d.unlocks,grants:d.grants,labUnlocks:d.labUnlocks,
   labCompletions:d.labCompletions,requests:d.requests,revisions:d.revisions,
