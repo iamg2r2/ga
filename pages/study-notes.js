@@ -1,6 +1,6 @@
 // Study notes views; content and permissions are provided by the app shell.
 export function lessonsPage(ctx){
- const {accessibleLessons,currentLesson,isFaculty,title,material,topicIsUnlocked,lessonUnitTabs,E,lessonSearchResults,bulkControls,lessonRows,indexListHTML,chapter,lessonPager,data,state,A}=ctx;
+ const {accessibleLessons,currentLesson,isFaculty,title,material,topicIsUnlocked,lessonUnitTabs,E,lessonSearchResults,bulkControls,lessonRows,indexListHTML,chapter,lessonPager,data,state,A,icons}=ctx;
  const renderStudyBody=(l,b)=>studyBody(l,b,ctx);const available=accessibleLessons();const l=currentLesson();if(!available.length&&!isFaculty())return title('STUDY NOTES · DIGITAL MANUAL','Your notes will appear here','Your teacher has not released any lessons yet. Locked topics are completely hidden until they are made available.')+`<div class="card empty"><h3>No released topics yet</h3><p>You can send a general learning request from the Requests page.</p><button class="btn blue" data-page="requests">Ask your teacher</button></div>`;
 if(!l)return title('STUDY NOTES','No lessons available','A faculty member has not prepared this course yet.');
 const body=material(l),unlocked=topicIsUnlocked(l),hasNote=!!body&&unlocked;
