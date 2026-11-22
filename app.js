@@ -1,4 +1,5 @@
 import {AcademyApi} from './api.js';
+import {myCoursesPage,courseAlertCount,markCourseVisited} from './my-courses.js';
 
 const cfg=window.ACADEMY_CONFIG||{};
 const demoMode=!(cfg.supabaseUrl&&cfg.supabasePublishableKey);
@@ -9,7 +10,7 @@ const E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 const A=(s,n=90)=>E(String(s??'').slice(0,n));
 const day=x=>x?new Date(x).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'—';
 const savedSidebarCollapsed=()=>{try{return localStorage.getItem('g2r2-academy-sidebar-collapsed')==='1'}catch{return false}};
-let state={manualUnit:1,manualTopic:null,manualSearch:'',manualTopicsOpen:false,manualAnswers:{},labNo:0,labTab:'aim',labSearch:'',selectedLabs:[],demoGate:!!window.ACADEMY_PREVIEW_LOGIN&&!sessionStorage.getItem('academy-preview-session'),sidebarCollapsed:savedSidebarCollapsed(),page:'dashboard',unit:1,hour:1,choice:null,ordering:[],showHint:false,modal:'',loginMode:'signin',notice:'',busy:false,smallMenu:false,offeringId:null,sessionLesson:null,selectedActivity:null,deviceBlocked:false,authResult:'',filter:'',topicsOpen:false,selectedLessons:[]};
+let state={manualUnit:1,manualTopic:null,manualSearch:'',manualTopicsOpen:false,manualAnswers:{},labNo:0,labTab:'aim',labSearch:'',selectedLabs:[],demoGate:!!window.ACADEMY_PREVIEW_LOGIN&&!sessionStorage.getItem('academy-preview-session'),sidebarCollapsed:savedSidebarCollapsed(),page:'courses',unit:1,hour:1,choice:null,ordering:[],showHint:false,modal:'',loginMode:'signin',notice:'',busy:false,smallMenu:false,offeringId:null,sessionLesson:null,selectedActivity:null,deviceBlocked:false,authResult:'',filter:'',topicsOpen:false,selectedLessons:[]};
 let data=null,demo=null,rawLessons=[],rawLabs=[];let timer=null;
 const demoKey='g2r2-academy-DEMO-v3-labs';
 const manualProgressKey='g2r2-academy-manual-understood-v1';
@@ -163,7 +164,7 @@ async function applyStudentBulkAction(action){
 
 
 const workspaceKey='g2r2-academy-workspace-v1';
-const workspacePages=new Set(['dashboard','admin','students','faculty','records','lessons','manual','lab','classroom','practice','requests','revisions','reports','settings']);
+const workspacePages=new Set(['courses','dashboard','admin','students','faculty','records','lessons','manual','lab','classroom','practice','requests','revisions','reports','settings']);
 let pendingWorkspaceScroll=null;
 // Per-tab workspace state: never store credentials, server answers, or account data.
 function storeWorkspace(){
@@ -183,7 +184,9 @@ function storeWorkspace(){
 }
 function restoreWorkspace(){
  if(demoMode||!api?.userId)return;
- state.page='dashboard';
+ state.page='courses';
+ return;
+ /*
  let saved;try{saved=JSON.parse(sessionStorage.getItem(workspaceKey)||'null')}catch{return}
  if(!saved||saved.userId!==api.userId||!workspacePages.has(saved.page))return;
  state.page=saved.page;
@@ -200,6 +203,7 @@ function restoreWorkspace(){
  state.draftReleaseId=typeof saved.draftReleaseId==='string'?saved.draftReleaseId:null;
  state.offeringId=typeof saved.offeringId==='string'?saved.offeringId:null;
  pendingWorkspaceScroll=Number.isFinite(saved.scrollY)&&saved.scrollY>=0?saved.scrollY:null;
+ */
 }
 function finishWorkspaceRestore(){
  if(pendingWorkspaceScroll===null)return;
@@ -210,7 +214,7 @@ function finishWorkspaceRestore(){
 function clearWorkspace(){
  try{sessionStorage.removeItem(workspaceKey)}catch{}
  pendingWorkspaceScroll=null;
- state.page='dashboard';state.manualTopic=null;state.labNo=0;state.selectedActivity=null;
+ state.page='courses';state.manualTopic=null;state.labNo=0;state.selectedActivity=null;
  state.choice=null;state.ordering=[];state.draftReleaseId=null;state.offeringId=null;
 }
 window.addEventListener('pagehide',storeWorkspace);
@@ -264,7 +268,7 @@ async function init(){
     }else if(api.session){await checkPlatform();if(platformStatus.account_disabled){root.innerHTML='<section class="auth"><div class="card"><h2>Account suspended</h2><p>Contact your Academy administrator to restore access.</p><button class="btn outline" data-action="logout">Sign out</button></div></section>'}else if(platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else{await claimDevice();await refresh();if(state.page==='students'&&isAdmin()){await loadStudentRoster();render()}if(state.page==='faculty'&&isAdmin()){await loadFacultyData();render()}finishWorkspaceRestore()}}else{await checkPlatform();render()};
     if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     if(!demoMode)setInterval(async()=>{const before=platformStatus.maintenance_enabled,wasDisabled=platformStatus.account_disabled;await checkPlatform();if(before!==platformStatus.maintenance_enabled||wasDisabled!==platformStatus.account_disabled){if(api.session&&platformStatus.account_disabled){render()}else if(api.session&&platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else if(api.session){try{await refresh()}catch(e){notice(e.message)}}else render()}},30000);
-    timer=setInterval(async()=>{if(!document.hidden&&!demoMode&&api.session&&!state.busy&&!state.modal&&['classroom','reports','requests','dashboard'].includes(state.page)){
+    timer=setInterval(async()=>{if(!document.hidden&&!demoMode&&api.session&&!state.busy&&!state.modal&&['classroom','reports','requests','dashboard','courses'].includes(state.page)){
       try{await refresh(false)}catch{}}
     },9500);
   }catch(e){root.innerHTML='<div class="auth"><div class="card"><h2>Academy needs a web server</h2><p>'+E(e.message)+'</p><p>Run <code>python -m http.server 8080</code> in the unzipped project folder, then open <code>http://localhost:8080</code>.</p></div></div>'}
@@ -301,7 +305,7 @@ async function refresh(paint=true){
   state.sessionLesson=null;state.selectedActivity=null;state.choice=null;state.ordering=[];state.draftReleaseId=null;
  }
  state.offeringId=data.offeringId;
- if(['admin','students','faculty'].includes(state.page)&&!isAdmin())state.page='dashboard';
+ if(['admin','students','faculty'].includes(state.page)&&!isAdmin())state.page='courses';
  if(state.hour&&!getLesson(state.hour))state.hour=accessibleLessons()[0]?.teaching_hour||1;
  if(!isFaculty()){state.selectedLessons=[];state.topicsOpen=false;}
  if(!accessibleLessons().some(l=>l.unit_no===state.unit))state.unit=accessibleLessons()[0]?.unit_no||1;
@@ -313,7 +317,7 @@ async function refresh(paint=true){
  state.draftReleaseId=releaseId;
  if(!demoMode)await loadRevealedAnswer();
  if(paint)render();
- else if(['classroom','reports','requests','dashboard'].includes(state.page)&&previousFingerprint!==liveFingerprint(data)){
+ else if(['classroom','reports','requests','dashboard','courses'].includes(state.page)&&previousFingerprint!==liveFingerprint(data)){
   render();window.scrollTo(0,previousScroll);storeWorkspace();
  }
 }
@@ -323,15 +327,15 @@ function render(){
  if(!demoMode&&platformStatus.maintenance_enabled&&!platformStatus.is_admin){maintenanceScreen();return}
  if(demoMode&&state.demoGate){renderPreviewLogin();return}
  if(!data){root.innerHTML='<main class="boot"><div class="spinner"></div>Loading…</main>';return}
- const visibleNav=isAdmin()?['dashboard','admin','students','faculty','records','lessons','manual','lab','classroom','practice','requests','revisions','reports','settings']:isFaculty()?['dashboard','records','lessons','manual','lab','classroom','practice','requests','revisions','reports','settings']:['dashboard','lessons','manual','lab','classroom','practice','requests','revisions','reports','settings'];
- const navNames=isAdmin()?{faculty:'Faculty & courses',records:'Class records',students:'Students',admin:'Administration',dashboard:'Dashboard',lessons:'Course notes',manual:'Study Manual',lab:'Lab Record Studio',classroom:'Classroom',practice:'Practice',requests:'Requests',revisions:'Revision',reports:'Reports',settings:'Settings'}:isFaculty()?{records:'Class records',dashboard:'Dashboard',lessons:'Course notes',manual:'Study Manual',lab:'Lab Record Studio',classroom:'Classroom',practice:'Practice',requests:'Requests',revisions:'Revision',reports:'Reports',settings:'Settings'}:{dashboard:'My desk',lessons:'Study notes',manual:'Study Manual',lab:'Lab Record Studio',classroom:'Live class',practice:'Practice',requests:'Ask faculty',revisions:'Revision',reports:'My record',settings:'My account'};
- const menu=visibleNav.map(page=>{const emoji=page==='students'?icons.requests:page==='admin'||page==='faculty'?icons.settings:page==='records'?icons.reports:icons[page];const label=navNames[page];return `<button data-page="${page}" title="${label}" aria-label="${label}" class="${state.page===page?'active':''}" ${state.page===page?'aria-current="page"':''}><span class="emoji">${emoji}</span><span class="nav-label">${label}</span></button>`}).join('');
+ const visibleNav=isAdmin()?['courses','dashboard','admin','students','faculty','records','lessons','manual','lab','classroom','practice','requests','revisions','reports','settings']:isFaculty()?['courses','dashboard','records','lessons','manual','lab','classroom','practice','requests','revisions','reports','settings']:['courses','dashboard','lessons','manual','lab','classroom','practice','requests','revisions','reports','settings'];
+ const navNames=isAdmin()?{courses:'My Courses',faculty:'Faculty & courses',records:'Class records',students:'Students',admin:'Administration',dashboard:'Dashboard',lessons:'Course notes',manual:'Study Manual',lab:'Lab Record Studio',classroom:'Classroom',practice:'Practice',requests:'Requests',revisions:'Revision',reports:'Reports',settings:'Settings'}:isFaculty()?{courses:'My Courses',records:'Class records',dashboard:'Dashboard',lessons:'Course notes',manual:'Study Manual',lab:'Lab Record Studio',classroom:'Classroom',practice:'Practice',requests:'Requests',revisions:'Revision',reports:'Reports',settings:'Settings'}:{courses:'My Courses',dashboard:'My desk',lessons:'Study notes',manual:'Study Manual',lab:'Lab Record Studio',classroom:'Live class',practice:'Practice',requests:'Ask faculty',revisions:'Revision',reports:'My record',settings:'My account'};
+ const menu=visibleNav.map(page=>{const emoji=page==='courses'?icons.dashboard:page==='students'?icons.requests:page==='admin'||page==='faculty'?icons.settings:page==='records'?icons.reports:icons[page];const label=navNames[page];return `<button data-page="${page}" title="${label}" aria-label="${label}" class="${state.page===page?'active':''}" ${state.page===page?'aria-current="page"':''}><span class="emoji">${emoji}</span><span class="nav-label">${label}</span></button>`}).join('');
  const switcher=demoMode?`<button class="btn small outline" data-action="switch-role">${isFaculty()?'Student preview':'Faculty preview'}</button>`:'';
- const head=`<div class="brandline"><button class="btn small outline mobile-menu" data-action="toggle-menu" aria-label="${state.smallMenu?'Close navigation menu':'Open navigation menu'}" aria-controls="academy-sidebar" aria-expanded="${state.smallMenu}" title="Menu">☰</button><div><strong>${E(data.courses.find(c=>c.id===data.offerings.find(o=>o.id===data.offeringId)?.course_id)?.title||cfg.title||'g2r2 Academy')}</strong><small>${E(data.courses.find(c=>c.id===data.offerings.find(o=>o.id===data.offeringId)?.course_id)?.code||'Academy')} · ${E(data.offerings.find(o=>o.id===data.offeringId)?.batch||'Class')}</small></div></div><div class="actions">${data.offerings.length>1?`<select id="offering-select" aria-label="Choose class">${data.offerings.map(o=>`<option value="${o.id}" ${data.offeringId===o.id?'selected':''}>${A(data.courses.find(c=>c.id===o.course_id)?.code||'Course',20)} · ${A(o.batch,25)}</option>`).join('')}</select>`:''}${!isFaculty()?'<button class="btn small primary" data-page="lab">Lab practicals →</button>':''}${switcher}<span class="tiny">${E(data.me.display_name)}</span><span class="badge">${displayRole()}</span></div>`;
- let page='';if(state.deviceBlocked)page=deviceLimit();else if(!canAccess())page=unassigned();else{
+ const head=`<div class="brandline"><button class="btn small outline mobile-menu" data-action="toggle-menu" aria-label="${state.smallMenu?'Close navigation menu':'Open navigation menu'}" aria-controls="academy-sidebar" aria-expanded="${state.smallMenu}" title="Menu">☰</button><div><strong>${E(data.courses.find(c=>c.id===data.offerings.find(o=>o.id===data.offeringId)?.course_id)?.title||cfg.title||'g2r2 Academy')}</strong><small>${E(data.courses.find(c=>c.id===data.offerings.find(o=>o.id===data.offeringId)?.course_id)?.code||'Academy')} · ${E(data.offerings.find(o=>o.id===data.offeringId)?.batch||'Class')}</small></div></div><div class="actions"><button class="btn small outline course-home-button" data-page="courses">My Courses</button>${!isFaculty()&&courseAlertCount(data)?`<button class="btn small outline course-bell" data-page="courses" aria-label="${courseAlertCount(data)} course alerts">🔔 <span class="course-bell-count">${courseAlertCount(data)}</span></button>`:''}${data.offerings.length>1?`<select id="offering-select" aria-label="Choose class">${data.offerings.map(o=>`<option value="${o.id}" ${data.offeringId===o.id?'selected':''}>${A(data.courses.find(c=>c.id===o.course_id)?.code||'Course',20)} · ${A(o.batch,25)}</option>`).join('')}</select>`:''}${!isFaculty()?'<button class="btn small primary" data-page="lab">Lab practicals →</button>':''}${switcher}<span class="tiny">${E(data.me.display_name)}</span><span class="badge">${displayRole()}</span></div>`;
+ let page='';if(state.deviceBlocked)page=deviceLimit();else if(state.page==='courses')page=myCoursesPage(data,isFaculty());else if(!canAccess())page=unassigned();else{
   page=state.page==='faculty'&&isAdmin()?facultyPage():state.page==='records'&&isFaculty()?recordsPage():state.page==='students'&&isAdmin()?studentsPage():state.page==='admin'&&isAdmin()?adminPage():state.page==='dashboard'?(isFaculty()?dashboard():studentDashboard()):state.page==='lessons'?lessonsPage():state.page==='manual'?manualPage():state.page==='lab'?labPage():state.page==='classroom'?classroom():state.page==='practice'?practice():state.page==='requests'?requests():state.page==='revisions'?revisions():state.page==='reports'?reports():settings();
  }
- root.innerHTML=(!demoMode&&platformStatus.maintenance_enabled&&isAdmin()?'<div class="preview-banner">Development Mode is ON — student and faculty access is temporarily paused.</div>':'')+(demoMode?'<div class="preview-banner">Interactive demo only — simulated class data. No real student account, attendance or grades are stored on a server.</div>':'')+`<div class="layout ${state.sidebarCollapsed?'sidebar-collapsed':''}"><button type="button" class="sidebar-scrim ${state.smallMenu?'visible':''}" data-action="close-menu" aria-label="Close navigation"></button><aside id="academy-sidebar" class="sidebar ${state.smallMenu?'open':''}" aria-label="Main navigation"><div class="side-top"><div class="side-logo"><img alt="g2r2 Academy" src="./assets/academy-logo.webp"></div><button type="button" class="sidebar-toggle-desktop" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}" aria-expanded="${!state.sidebarCollapsed}" aria-controls="academy-sidebar" title="${state.sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}">${state.sidebarCollapsed?'→':'←'}</button><button type="button" class="sidebar-close-mobile" data-action="close-menu" aria-label="Close navigation menu" title="Close menu">✕</button></div><div class="side-group">WORKSPACE</div><nav class="nav">${menu}</nav><div class="side-bottom"><div class="side-account">${E(data.me.display_name)}<br><small>${E(data.me.registration_no||data.me.email)}</small></div><strong>a g2r2 venture</strong></div></aside><div class="shell"><header class="topbar">${head}</header><main class="page">${page}</main><footer class="footer">Made for curious minds · a g2r2 venture</footer></div></div><nav class="bottomnav">${['dashboard','manual','lab','classroom','settings'].map(p=>`<button data-page="${p}"><span>${icons[p]}</span>${p==='classroom'?'Class':p==='lab'?'Lab':p==='manual'?'Manual':p==='dashboard'?'Home':p[0].toUpperCase()+p.slice(1)}</button>`).join('')}</nav>`+(state.modal?renderModal(): '');
+ root.innerHTML=(!demoMode&&platformStatus.maintenance_enabled&&isAdmin()?'<div class="preview-banner">Development Mode is ON — student and faculty access is temporarily paused.</div>':'')+(demoMode?'<div class="preview-banner">Interactive demo only — simulated class data. No real student account, attendance or grades are stored on a server.</div>':'')+`<div class="layout ${state.sidebarCollapsed?'sidebar-collapsed':''}"><button type="button" class="sidebar-scrim ${state.smallMenu?'visible':''}" data-action="close-menu" aria-label="Close navigation"></button><aside id="academy-sidebar" class="sidebar ${state.smallMenu?'open':''}" aria-label="Main navigation"><div class="side-top"><div class="side-logo"><img alt="g2r2 Academy" src="./assets/academy-logo.webp"></div><button type="button" class="sidebar-toggle-desktop" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}" aria-expanded="${!state.sidebarCollapsed}" aria-controls="academy-sidebar" title="${state.sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}">${state.sidebarCollapsed?'→':'←'}</button><button type="button" class="sidebar-close-mobile" data-action="close-menu" aria-label="Close navigation menu" title="Close menu">✕</button></div><div class="side-group">WORKSPACE</div><nav class="nav">${menu}</nav><div class="side-bottom"><div class="side-account">${E(data.me.display_name)}<br><small>${E(data.me.registration_no||data.me.email)}</small></div><strong>a g2r2 venture</strong></div></aside><div class="shell"><header class="topbar">${head}</header><main class="page">${page}</main><footer class="footer">Made for curious minds · a g2r2 venture</footer></div></div><nav class="bottomnav">${['courses','manual','lab','classroom','settings'].map(p=>`<button data-page="${p}"><span>${icons[p]}</span>${p==='classroom'?'Class':p==='lab'?'Lab':p==='manual'?'Manual':p==='courses'?'Courses':p==='dashboard'?'Home':p[0].toUpperCase()+p.slice(1)}</button>`).join('')}</nav>`+(state.modal?renderModal(): '');
  if(state.page==='students'&&isAdmin())syncStudentSelectionHeader();
  storeWorkspace();
 }
@@ -595,6 +599,9 @@ function renderModal(){const m=state.modal;if(!m)return'';let content='';if(m.st
  return `<div class="modal-bg" data-action="close-modal-bg"><div class="modal"><div class="row"><span class="eyebrow">g2r2 Academy</span><button data-action="close-modal" class="btn small outline">✕</button></div>${content}</div></div>`;
 }
 const actions={
+ 'open-course':async el=>{const id=el.dataset.id;if(!data.offerings.some(o=>o.id===id))throw Error('Course not assigned to this account');clearStudentSelection();localStorage.setItem('g2r2-offering',id);markCourseVisited(data.me.user_id,id);state.page='dashboard';await refresh();window.scrollTo(0,0)},
+ 'join-course':async el=>{const id=el.dataset.id;if(!data.offerings.some(o=>o.id===id))throw Error('Course not assigned to this account');clearStudentSelection();localStorage.setItem('g2r2-offering',id);markCourseVisited(data.me.user_id,id);state.page='classroom';await refresh();window.scrollTo(0,0)},
+
 
  'faculty-rename':async el=>{const f=facultyData.faculty.find(x=>x.user_id===el.dataset.id);const name=prompt('Faculty name',f?.display_name||'');if(name===null)return;await facultyAction('update_faculty',{faculty_id:el.dataset.id,name})},
  'faculty-assign':async el=>{const code=prompt('Course code to assign');if(code===null)return;const c=facultyData.courses.find(x=>x.code===code.trim().toUpperCase());const o=facultyData.offerings.find(x=>x.course_id===c?.id);if(!o)throw Error('Course not found');await facultyAction('assign',{faculty_id:el.dataset.id,offering_id:o.id})},
@@ -695,7 +702,7 @@ Type the exact registration number to confirm:`);if(confirmation===null)return;i
  'remove-device':async el=>{if(demoMode){notice('Not applicable to demo');return}await api.rpc('academy_release_device',{p_device:el.dataset.id});await refresh();notice('Device removed')},
  'claim-device':async()=>{if(!demoMode){await claimDevice();await refresh()}},
  'maintenance-refresh':async()=>{await checkPlatform();if(api.session&&platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else if(api.session)await refresh();else render()},
- 'logout':async()=>{clearStudentSelection();if(demoMode){state.demoGate=!!window.ACADEMY_PREVIEW_LOGIN;sessionStorage.removeItem('academy-preview-session');state.page='dashboard';render();return}else{clearWorkspace();await api.signOut();data=null;state.deviceBlocked=false;render()}},
+ 'logout':async()=>{clearStudentSelection();if(demoMode){state.demoGate=!!window.ACADEMY_PREVIEW_LOGIN;sessionStorage.removeItem('academy-preview-session');state.page='courses';render();return}else{clearWorkspace();await api.signOut();data=null;state.deviceBlocked=false;render()}},
  'create-activity':async()=>{state.modal='create-activity';render()},
 };
 async function loadRevealedAnswer(){if(demoMode)return;state.revealAnswers??={};const r=selectedRelease();if(r?.revealed_at){try{state.revealAnswers[r.id]=await api.rpc('academy_revealed_answer',{p_release:r.id})}catch{}}}
@@ -767,7 +774,7 @@ root.addEventListener('change',async e=>{const el=e.target;
  if(el.id==='class-lesson'){state.sessionLesson=el.value;render()}
  else if(el.id==='practice-lesson'){state.hour=Number(el.value);state.showHint=false;render()}
  else if(el.id==='release-select'){state.selectedActivity=null}
- else if(el.id==='offering-select'){clearStudentSelection();localStorage.setItem('g2r2-offering',el.value);await refresh();if(state.page==='students'&&isAdmin()){studentRoster.page=0;await loadStudentRoster();render()}}
+ else if(el.id==='offering-select'){markCourseVisited(data.me.user_id,el.value);clearStudentSelection();localStorage.setItem('g2r2-offering',el.value);await refresh();if(state.page==='students'&&isAdmin()){studentRoster.page=0;await loadStudentRoster();render()}}
 });
 root.addEventListener('input',e=>{if(e.target.id==='manual-filter'){state.manualSearch=e.target.value;const topics=allManualTopics().filter(t=>manualTopicMatch(t,state.manualSearch));const panel=document.getElementById('manual-results'),mobile=document.getElementById('manual-mobile-results');const results=topics.map(t=>`<button class="manual-index-item" data-action="manual-topic" data-id="${E(t.id)}"><span class="manual-number">${E(t.id)}</span><span>${E(t.title)}</span></button>`).join('')||'<p class="hint">No matching released topics.</p>';if(panel)panel.innerHTML=results;if(mobile)mobile.innerHTML=state.manualSearch.trim()?results:'';return;}if(e.target.id==='lab-filter'){state.labSearch=e.target.value;const cursor=e.target.selectionStart;render();const x=$('#lab-filter');x?.focus();x?.setSelectionRange(cursor,cursor);return;}
  if(e.target.dataset.filter==='lessons'){
