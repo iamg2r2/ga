@@ -168,6 +168,8 @@ const workspacePages=new Set(['courses','dashboard','admin','students','faculty'
 let pendingWorkspaceScroll=null;
 // Per-tab workspace state: never store credentials, server answers, or account data.
 function storeWorkspace(){
+ // Persist on navigation, not just pagehide: installed PWAs can terminate without pagehide.
+
  if(demoMode||!api?.userId||!data||!workspacePages.has(state.page))return;
  try{
   const snapshot={
@@ -180,6 +182,8 @@ function storeWorkspace(){
    scrollY:pendingWorkspaceScroll??window.scrollY
   };
   sessionStorage.setItem(workspaceKey,JSON.stringify(snapshot));
+  const route='#/'+encodeURIComponent(state.page)+(state.courseEntered?'?course='+encodeURIComponent(data.offeringId||''):'');
+  if(location.hash!==route)history.replaceState(null,'',location.pathname+location.search+route);
  }catch(err){console.warn('Could not save workspace position',err)}
 }
 function restoreWorkspace(){
@@ -190,7 +194,18 @@ function restoreWorkspace(){
  if(demoMode||!api?.userId)return;
  try{
   const saved=JSON.parse(sessionStorage.getItem(workspaceKey)||'null');
-  if(!saved||saved.userId!==api.userId||!workspacePages.has(saved.page))return;
+  const route=location.hash.match(/^#\/([a-z]+)(?:\?course=([^&]+))?/);
+  if(!saved||saved.userId!==api.userId||!workspacePages.has(saved.page)){
+   // URL-based fallback when browser/PWA session storage was discarded.
+   if(route&&workspacePages.has(route[1])&&route[2]&&route[1]!=='courses'){
+    state.page=route[1];state.courseEntered=true;
+    state.restoredOfferingId=decodeURIComponent(route[2]);
+    localStorage.setItem('g2r2-offering',state.restoredOfferingId);
+   }
+   return;
+  }
+  // The URL route survives a browser reload even when a PWA loses its pagehide event.
+  if(route&&workspacePages.has(route[1])&&route[1]!=='courses'&&route[2]===saved.offeringId){saved.page=route[1];saved.courseEntered=true;}
   state.page=saved.page;
   state.courseEntered=!!saved.courseEntered&&saved.page!=='courses';
   for(const key of ['unit','hour','manualUnit','manualTopic','labNo','labTab','sessionLesson','selectedActivity','selectedLessons','manualAnswers','choice','ordering','draftReleaseId']){
@@ -208,11 +223,13 @@ function finishWorkspaceRestore(){
 }
 function clearWorkspace(){
  try{sessionStorage.removeItem(workspaceKey)}catch{}
+ history.replaceState(null,'',location.pathname+location.search+'#/courses');
  pendingWorkspaceScroll=null;
  state.page='courses';state.courseEntered=false;state.manualTopic=null;state.labNo=0;state.selectedActivity=null;
  state.choice=null;state.ordering=[];state.draftReleaseId=null;state.offeringId=null;
 }
 window.addEventListener('pagehide',storeWorkspace);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')storeWorkspace()});
 // Only repaint live screens when server data actually changed, not every polling tick.
 function liveFingerprint(d){
  if(!d)return '';
