@@ -196,7 +196,7 @@ function restoreWorkspace(){
   for(const key of ['unit','hour','manualUnit','manualTopic','labNo','labTab','sessionLesson','selectedActivity','selectedLessons','manualAnswers','choice','ordering','draftReleaseId']){
    if(Object.prototype.hasOwnProperty.call(saved,key))state[key]=saved[key];
   }
-  if(saved.offeringId)localStorage.setItem('g2r2-offering',saved.offeringId);
+  if(saved.offeringId){state.restoredOfferingId=saved.offeringId;localStorage.setItem('g2r2-offering',saved.offeringId);}
   pendingWorkspaceScroll=Number.isFinite(saved.scrollY)&&saved.scrollY>=0?saved.scrollY:null;
  }catch(err){console.warn('Could not restore workspace',err)}
 }
@@ -301,7 +301,8 @@ async function refresh(paint=true){
  }
  state.offeringId=data.offeringId;
  // Never restore a course page if its enrollment or assignment is no longer available.
- if(state.page!=='courses'&&!isFaculty()&&(!state.courseEntered||!data.offerings.some(o=>o.id===data.offeringId))){state.page='courses';state.courseEntered=false;pendingWorkspaceScroll=null;}
+ if(state.page!=='courses'&&((state.restoredOfferingId&&state.restoredOfferingId!==data.offeringId)||(!isFaculty()&&(!state.courseEntered||!data.offerings.some(o=>o.id===data.offeringId))))){state.page='courses';state.courseEntered=false;pendingWorkspaceScroll=null;}
+ state.restoredOfferingId=null;
  if(['admin','students','faculty'].includes(state.page)&&!isAdmin())state.page='courses';
  if(!isFaculty()&&!state.courseEntered&&!['courses','settings'].includes(state.page))state.page='courses';
  if(state.hour&&!getLesson(state.hour))state.hour=accessibleLessons()[0]?.teaching_hour||1;
