@@ -171,7 +171,7 @@ function storeWorkspace(){
  if(demoMode||!api?.userId||!data||!workspacePages.has(state.page))return;
  try{
   const snapshot={
-   userId:api.userId,offeringId:data.offeringId,page:state.page,
+   userId:api.userId,offeringId:data.offeringId,page:state.page,courseEntered:state.courseEntered,
    unit:state.unit,hour:state.hour,manualUnit:state.manualUnit,manualTopic:state.manualTopic,
    labNo:state.labNo,labTab:state.labTab,sessionLesson:state.sessionLesson,
    selectedActivity:state.selectedActivity,selectedLessons:state.selectedLessons,
@@ -183,10 +183,22 @@ function storeWorkspace(){
  }catch(err){console.warn('Could not save workspace position',err)}
 }
 function restoreWorkspace(){
- // Always land on the course chooser after authentication; don't restore an old course page.
+ // A browser refresh resumes the current tab; a fresh sign-in still starts at My Courses.
  state.page='courses';
  state.courseEntered=false;
  pendingWorkspaceScroll=null;
+ if(demoMode||!api?.userId)return;
+ try{
+  const saved=JSON.parse(sessionStorage.getItem(workspaceKey)||'null');
+  if(!saved||saved.userId!==api.userId||!workspacePages.has(saved.page))return;
+  state.page=saved.page;
+  state.courseEntered=!!saved.courseEntered&&saved.page!=='courses';
+  for(const key of ['unit','hour','manualUnit','manualTopic','labNo','labTab','sessionLesson','selectedActivity','selectedLessons','manualAnswers','choice','ordering','draftReleaseId']){
+   if(Object.prototype.hasOwnProperty.call(saved,key))state[key]=saved[key];
+  }
+  if(saved.offeringId)localStorage.setItem('g2r2-offering',saved.offeringId);
+  pendingWorkspaceScroll=Number.isFinite(saved.scrollY)&&saved.scrollY>=0?saved.scrollY:null;
+ }catch(err){console.warn('Could not restore workspace',err)}
 }
 function finishWorkspaceRestore(){
  if(pendingWorkspaceScroll===null)return;
@@ -288,6 +300,8 @@ async function refresh(paint=true){
   state.sessionLesson=null;state.selectedActivity=null;state.choice=null;state.ordering=[];state.draftReleaseId=null;
  }
  state.offeringId=data.offeringId;
+ // Never restore a course page if its enrollment or assignment is no longer available.
+ if(state.page!=='courses'&&!isFaculty()&&(!state.courseEntered||!data.offerings.some(o=>o.id===data.offeringId))){state.page='courses';state.courseEntered=false;pendingWorkspaceScroll=null;}
  if(['admin','students','faculty'].includes(state.page)&&!isAdmin())state.page='courses';
  if(!isFaculty()&&!state.courseEntered&&!['courses','settings'].includes(state.page))state.page='courses';
  if(state.hour&&!getLesson(state.hour))state.hour=accessibleLessons()[0]?.teaching_hour||1;
@@ -699,7 +713,7 @@ async function handleForm(form){const val=Object.fromEntries(new FormData(form).
  if(type==='student-edit'){const student=rosterStudent(val.student_id);await manageStudent('edit',student,{name:val.name,registration_no:val.registration_no});state.modal='';render();return}
  if(type==='student-password'){const student=rosterStudent(val.student_id);await manageStudent('reset_password',student,{password:val.password});form.reset();state.modal='';render();return}
  if(type==='maintenance'){if(!isAdmin())throw Error('Administrator access required');const enable=val.enabled==='true';if(enable&&!confirm('Enable Development Mode? Students and faculty will temporarily lose access.'))return;platformStatus=await api.rpc('academy_admin_set_maintenance',{p_enabled:enable,p_message:val.message});await refresh();notice(enable?'Development Mode enabled':'Academy is live');return}
- if(type==='signin'){try{await api.signIn(val.email,val.password);restoreWorkspace();await checkPlatform();if(platformStatus.account_disabled){await api.signOut();throw Error('Your Academy account is suspended. Contact the administrator.')}if(platformStatus.maintenance_enabled&&!platformStatus.is_admin){maintenanceScreen();return}await claimDevice();await refresh();if(state.page==='students'&&isAdmin()){await loadStudentRoster();render()}finishWorkspaceRestore()}catch(e){state.authResult=e.message;render()}return}
+ if(type==='signin'){try{await api.signIn(val.email,val.password);clearWorkspace();await checkPlatform();if(platformStatus.account_disabled){await api.signOut();throw Error('Your Academy account is suspended. Contact the administrator.')}if(platformStatus.maintenance_enabled&&!platformStatus.is_admin){maintenanceScreen();return}await claimDevice();await refresh();if(state.page==='students'&&isAdmin()){await loadStudentRoster();render()}finishWorkspaceRestore()}catch(e){state.authResult=e.message;render()}return}
  if(type==='signup'){const r=await api.signUp(val);state.authResult=r.session?'Account created. You may sign in.':'Check your email to verify your account, then sign in.';state.loginMode='signin';render();return}
  if(type==='reset'){await api.resetPassword(val.email);state.authResult='If your email is registered, a recovery link has been sent.';state.loginMode='signin';render();return}
  if(type==='request'){let l=val.lesson_id||null;if(demoMode){demo.requests.unshift({id:'req-'+uuid(),offering_id:data.offeringId,student_id:data.me.user_id,lesson_id:l,request_type:val.request_type,message:val.message,status:'pending',created_at:isoNow()});saveDemo()}
