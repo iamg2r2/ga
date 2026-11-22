@@ -31,8 +31,10 @@ export class AcademyApi {
   async rpc(name,args){return this.request('/rest/v1/rpc/'+name,{method:'POST',body:args})}
   async load(){
     const self=(await this.table('profiles',{'user_id':'eq.'+this.userId}))[0];if(!self)throw new Error('No Academy profile exists for this account.');
-    const [offerings,courses,allCourseUnits]=await Promise.all([this.table('offerings',{order:'created_at.desc'}),this.table('courses'),this.table('course_units')]);
+    const [offerings,courses,allCourseUnits,allSessions,allReleases]=await Promise.all([this.table('offerings',{order:'created_at.desc'}),this.table('courses'),this.table('course_units'),this.table('class_sessions',{order:'started_at.desc',limit:'120'}),this.table('activity_releases',{order:'released_at.desc',limit:'160'})]);
     const available=offerings.filter(o=>courses.some(c=>c.id===o.course_id));
+    // Supabase RLS only exposes offerings accessible to the signed-in faculty/student.
+    const courseAlerts=available.map(o=>({offeringId:o.id,live:allSessions.some(s=>s.offering_id===o.id&&s.status==='live'),releases:allReleases.filter(r=>allSessions.some(s=>s.id===r.session_id&&s.offering_id===o.id)).map(r=>({id:r.id,released_at:r.released_at}))}));
     let selected=localStorage.getItem('g2r2-offering');if(!available.some(o=>o.id===selected))selected=available[0]?.id||null;
     let course=available.find(o=>o.id===selected);let schedule=[];let labs=[],labUnlocks=[],labCompletions=[],lessons=[],materials=[],unlocks=[],sessions=[],attendance=[],activities=[],releases=[],attempts=[],requests=[],grants=[],revisions=[],enrollments=[],profiles=[],notes=[],devices=[];
     devices=await this.table('registered_devices');
@@ -51,6 +53,6 @@ export class AcademyApi {
         this.table('profiles'),this.table('personal_notes'),this.table('attendance')]);
       [labs,labUnlocks,labCompletions,materials,unlocks,sessions,schedule,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,attendance]=items;
     }
-    return {me:self,offerings:available,courses,courseUnits:allCourseUnits.filter(u=>u.course_id===course?.course_id),offeringId:selected,schedule,labs,labUnlocks,labCompletions,lessons,materials,unlocks,sessions,attendance,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,devices};
+    return {me:self,offerings:available,courses,courseAlerts,courseUnits:allCourseUnits.filter(u=>u.course_id===course?.course_id),offeringId:selected,schedule,labs,labUnlocks,labCompletions,lessons,materials,unlocks,sessions,attendance,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,devices};
   }
 }
