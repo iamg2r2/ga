@@ -66,12 +66,12 @@ export class AcademyApi {
         (lessonFilter?this.table('lesson_materials',lessonFilter):Promise.resolve([])),this.table('lesson_unlocks',{'offering_id':'eq.'+selected}),
         Promise.resolve(sessionsForCourse),
         this.table('lesson_schedule',{'offering_id':'eq.'+selected}),
-        (lessonFilter?this.table('activities',lessonFilter):Promise.resolve([])),this.table('activity_releases'),this.rpc('academy_list_attempts',{p_offering:selected}),
+        (lessonFilter?this.table('activities',lessonFilter):Promise.resolve([])),(sessionsForCourse.length?this.table('activity_releases',{'session_id':'in.('+sessionsForCourse.map(x=>x.id).join(',')+')'}):Promise.resolve([])),this.rpc('academy_list_attempts',{p_offering:selected}),
         this.table('learning_requests',{'offering_id':'eq.'+selected,order:'created_at.desc'}),
         this.table('access_grants',{'offering_id':'eq.'+selected}),
         this.table('revision_sets',{'offering_id':'eq.'+selected}),
         this.table('enrollments',{'offering_id':'eq.'+selected}),
-        this.table('profiles'),(self.account_role==='student'?this.table('personal_notes',{'student_id':'eq.'+this.userId}):this.table('personal_notes')),this.table('attendance')]);
+        this.table('profiles'),(self.account_role==='student'?this.table('personal_notes',{'student_id':'eq.'+this.userId}):this.table('personal_notes')),(sessionsForCourse.length?this.table('attendance',{'session_id':'in.('+sessionsForCourse.map(x=>x.id).join(',')+')'}):Promise.resolve([]))]);
       [labs,labUnlocks,labCompletions,materials,unlocks,sessions,schedule,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,attendance]=items;
     }
     return {me:self,offerings:available,courses,courseAlerts,courseUnits:allCourseUnits.filter(u=>u.course_id===course?.course_id),offeringId:selected,schedule,labs,labUnlocks,labCompletions,lessons,materials,unlocks,sessions,attendance,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,devices};
