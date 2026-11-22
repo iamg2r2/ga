@@ -29,16 +29,30 @@ export class AcademyApi {
   async update(name,query,data){return this.request('/rest/v1/'+name,{method:'PATCH',body:data,query,prefer:'return=minimal'})}
   async updatePassword(password){return this.request('/auth/v1/user',{method:'PUT',body:{password}})}
   async rpc(name,args){return this.request('/rest/v1/rpc/'+name,{method:'POST',body:args})}
-  async load(){
+  async loadCourseAlerts(offerings){
+    // Only course-scoped status data: no lessons, submissions or student profiles.
+    const [sessions,releases]=await Promise.all([
+      this.table('class_sessions',{select:'id,offering_id,status',order:'started_at.desc',limit:'120'}),
+      this.table('activity_releases',{select:'id,session_id,released_at',order:'released_at.desc',limit:'160'})
+    ]);
+    const sessionOfferings=new Map(sessions.map(row=>[row.id,row.offering_id]));
+    return offerings.map(o=>({
+      offeringId:o.id,
+      live:sessions.some(row=>row.offering_id===o.id&&row.status==='live'),
+      releases:releases.filter(row=>sessionOfferings.get(row.session_id)===o.id).map(row=>({id:row.id,released_at:row.released_at}))
+    }));
+  }
+  async load({coursesOnly=false}={}){
+
     const self=(await this.table('profiles',{'user_id':'eq.'+this.userId}))[0];if(!self)throw new Error('No Academy profile exists for this account.');
-    const [offerings,courses,allCourseUnits,allSessions,allReleases]=await Promise.all([this.table('offerings',{order:'created_at.desc'}),this.table('courses'),this.table('course_units'),this.table('class_sessions',{order:'started_at.desc',limit:'120'}),this.table('activity_releases',{order:'released_at.desc',limit:'160'})]);
+    const [offerings,courses,allCourseUnits]=await Promise.all([this.table('offerings',{order:'created_at.desc'}),this.table('courses'),coursesOnly?Promise.resolve([]):this.table('course_units')]);
     const available=offerings.filter(o=>courses.some(c=>c.id===o.course_id));
     // Supabase RLS only exposes offerings accessible to the signed-in faculty/student.
-    const courseAlerts=available.map(o=>({offeringId:o.id,live:allSessions.some(s=>s.offering_id===o.id&&s.status==='live'),releases:allReleases.filter(r=>allSessions.some(s=>s.id===r.session_id&&s.offering_id===o.id)).map(r=>({id:r.id,released_at:r.released_at}))}));
+    const courseAlerts=await this.loadCourseAlerts(available);
     let selected=localStorage.getItem('g2r2-offering');if(!available.some(o=>o.id===selected))selected=available[0]?.id||null;
     let course=available.find(o=>o.id===selected);let schedule=[];let labs=[],labUnlocks=[],labCompletions=[],lessons=[],materials=[],unlocks=[],sessions=[],attendance=[],activities=[],releases=[],attempts=[],requests=[],grants=[],revisions=[],enrollments=[],profiles=[],notes=[],devices=[];
-    devices=await this.table('registered_devices');
-    if(course){
+    if(!coursesOnly)devices=await this.table('registered_devices');
+    if(course&&!coursesOnly){
       const courseLessons=await this.table('lessons',{'course_id':'eq.'+course.course_id,order:'teaching_hour.asc'});lessons=courseLessons;
       const items=await Promise.all([
         this.table('lab_practicals',{'course_id':'eq.'+course.course_id,order:'experiment_no.asc'}),this.table('lab_unlocks',{'offering_id':'eq.'+selected}),this.table('lab_completions',{'offering_id':'eq.'+selected}),
