@@ -268,13 +268,15 @@ async function init(){
     }else if(api.session){await checkPlatform();if(platformStatus.account_disabled){root.innerHTML='<section class="auth"><div class="card"><h2>Account suspended</h2><p>Contact your Academy administrator to restore access.</p><button class="btn outline" data-action="logout">Sign out</button></div></section>'}else if(platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else{await claimDevice();await refresh();if(state.page==='students'&&isAdmin()){await loadStudentRoster();render()}if(state.page==='faculty'&&isAdmin()){await loadFacultyData();render()}finishWorkspaceRestore()}}else{await checkPlatform();render()};
     if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     if(!demoMode)setInterval(async()=>{const before=platformStatus.maintenance_enabled,wasDisabled=platformStatus.account_disabled;await checkPlatform();if(before!==platformStatus.maintenance_enabled||wasDisabled!==platformStatus.account_disabled){if(api.session&&platformStatus.account_disabled){render()}else if(api.session&&platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else if(api.session){try{await refresh()}catch(e){notice(e.message)}}else render()}},30000);
-    timer=setInterval(async()=>{if(!document.hidden&&!demoMode&&api.session&&!state.busy&&!state.modal&&['classroom','reports','requests','dashboard','courses'].includes(state.page)){
+    let pollingInFlight=false;
+    timer=setInterval(async()=>{if(pollingInFlight)return;if(!document.hidden&&!demoMode&&api.session&&!state.busy&&!state.modal&&['classroom','reports','requests','dashboard','courses'].includes(state.page)){
+      pollingInFlight=true;
       try{
         if(state.page==='courses'&&data?.offerings){
           const next=await api.loadCourseAlerts(data.offerings);
           if(JSON.stringify(next)!==JSON.stringify(data.courseAlerts)){data.courseAlerts=next;render()}
         }else await refresh(false);
-      }catch{}}
+      }catch{}finally{pollingInFlight=false}}
     },9500);
   }catch(e){root.innerHTML='<div class="auth"><div class="card"><h2>Academy needs a web server</h2><p>'+E(e.message)+'</p><p>Run <code>python -m http.server 8080</code> in the unzipped project folder, then open <code>http://localhost:8080</code>.</p></div></div>'}
 }
