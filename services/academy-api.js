@@ -1,3 +1,4 @@
+import {buildCourseAlerts} from './course-alerts.js';
 // Browser-only Supabase REST adapter: publishable key, Auth tokens and server-enforced RLS.
 // Does not trust user_metadata for roles; all authorization lives in Postgres.
 const K='g2r2-academy-session-v1';
@@ -43,12 +44,7 @@ export class AcademyApi {
       session_id:'in.('+sessions.map(s=>s.id).join(',')+')',
       order:'released_at.desc',limit:'160'
     }):[];
-    const sessionOfferings=new Map(sessions.map(row=>[row.id,row.offering_id]));
-    return offerings.map(o=>({
-      offeringId:o.id,
-      live:sessions.some(row=>row.offering_id===o.id&&row.status==='live'),
-      releases:releases.filter(row=>sessionOfferings.get(row.session_id)===o.id).map(row=>({id:row.id,released_at:row.released_at}))
-    }));
+    return buildCourseAlerts(offerings,sessions,releases);
   }
   async load({coursesOnly=false}={}){
 
