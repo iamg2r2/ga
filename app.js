@@ -194,9 +194,17 @@ function restoreWorkspace(){
  if(demoMode||!api?.userId)return;
  try{
   const saved=JSON.parse(sessionStorage.getItem(workspaceKey)||'null');
-  if(!saved||saved.userId!==api.userId||!workspacePages.has(saved.page))return;
-  // The URL route survives a browser reload even when a PWA loses its pagehide event.
   const route=location.hash.match(/^#\/([a-z]+)(?:\?course=([^&]+))?/);
+  if(!saved||saved.userId!==api.userId||!workspacePages.has(saved.page)){
+   // URL-based fallback when browser/PWA session storage was discarded.
+   if(route&&workspacePages.has(route[1])&&route[2]&&route[1]!=='courses'){
+    state.page=route[1];state.courseEntered=true;
+    state.restoredOfferingId=decodeURIComponent(route[2]);
+    localStorage.setItem('g2r2-offering',state.restoredOfferingId);
+   }
+   return;
+  }
+  // The URL route survives a browser reload even when a PWA loses its pagehide event.
   if(route&&workspacePages.has(route[1])&&route[1]!=='courses'&&route[2]===saved.offeringId){saved.page=route[1];saved.courseEntered=true;}
   state.page=saved.page;
   state.courseEntered=!!saved.courseEntered&&saved.page!=='courses';
