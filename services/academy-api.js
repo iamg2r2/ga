@@ -68,7 +68,7 @@ export class AcademyApi {
         this.table('access_grants',{'offering_id':'eq.'+selected}),
         this.table('revision_sets',{'offering_id':'eq.'+selected}),
         this.table('enrollments',{'offering_id':'eq.'+selected}),
-        this.table('profiles'),(self.account_role==='student'?this.table('personal_notes',{'student_id':'eq.'+this.userId}):this.table('personal_notes')),(sessionFilter?this.table('attendance',sessionFilter):Promise.resolve([]))]);
+        this.table('profiles'),(self.account_role==='student'?this.table('personal_notes',{'student_id':'eq.'+this.userId}):this.table('personal_notes')),this.table('attendance')]);
       [labs,labUnlocks,labCompletions,materials,unlocks,sessions,schedule,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,attendance]=items;
     }
     return {me:self,offerings:available,courses,courseAlerts,courseUnits:allCourseUnits.filter(u=>u.course_id===course?.course_id),offeringId:selected,schedule,labs,labUnlocks,labCompletions,lessons,materials,unlocks,sessions,attendance,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,devices};
