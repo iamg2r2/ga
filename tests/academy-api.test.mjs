@@ -47,3 +47,11 @@ test('Entering a course loads scoped lesson content',async()=>{
   assert.equal(materialCall.params.lesson_id,'in.(lesson-1)');
   assert.equal(calls.find(c=>c.name==='personal_notes').params.student_id,'eq.student-1');
 });
+
+test('Course workspace scopes releases and attendance to selected sessions',async()=>{
+  const {api,calls}=fixture();
+  await api.load();
+  const releaseCalls=calls.filter(c=>c.name==='activity_releases');
+  assert.equal(releaseCalls.at(-1).params.session_id,'in.(session-1)');
+  assert.equal(calls.find(c=>c.name==='attendance').params.session_id,'in.(session-1)');
+});
