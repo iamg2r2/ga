@@ -31,10 +31,18 @@ export class AcademyApi {
   async rpc(name,args){return this.request('/rest/v1/rpc/'+name,{method:'POST',body:args})}
   async loadCourseAlerts(offerings){
     // Only course-scoped status data: no lessons, submissions or student profiles.
-    const [sessions,releases]=await Promise.all([
-      this.table('class_sessions',{select:'id,offering_id,status',order:'started_at.desc',limit:'120'}),
-      this.table('activity_releases',{select:'id,session_id,released_at',order:'released_at.desc',limit:'160'})
-    ]);
+    if(!offerings.length)return [];
+    // Request only sessions for the courses this account can see, rather than all sessions.
+    const offeringIds=offerings.map(o=>o.id);
+    const sessions=await this.table('class_sessions',{
+      select:'id,offering_id,status',offering_id:'in.('+offeringIds.join(',')+')',
+      order:'started_at.desc',limit:'120'
+    });
+    const releases=sessions.length?await this.table('activity_releases',{
+      select:'id,session_id,released_at',
+      session_id:'in.('+sessions.map(s=>s.id).join(',')+')',
+      order:'released_at.desc',limit:'160'
+    }):[];
     const sessionOfferings=new Map(sessions.map(row=>[row.id,row.offering_id]));
     return offerings.map(o=>({
       offeringId:o.id,

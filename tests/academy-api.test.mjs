@@ -30,6 +30,8 @@ test('My Courses does not fetch course workspace datasets',async()=>{
   assert.equal(data.offerings.length,1);
   assert.equal(data.courseAlerts[0].live,true);
   assert.equal(data.courseAlerts[0].releases.length,1);
+  assert.equal(calls.find(c=>c.name==='class_sessions').params.offering_id,'in.(offering-1)');
+  assert.equal(calls.find(c=>c.name==='activity_releases').params.session_id,'in.(session-1)');
   for(const name of ['lessons','lesson_materials','lab_practicals','attendance','profiles_all','registered_devices','activities','enrollments']){
     assert.equal(calls.filter(c=>c.name===name).length,0,name+' should not be fetched');
   }
