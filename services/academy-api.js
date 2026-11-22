@@ -54,17 +54,21 @@ export class AcademyApi {
     if(!coursesOnly)devices=await this.table('registered_devices');
     if(course&&!coursesOnly){
       const courseLessons=await this.table('lessons',{'course_id':'eq.'+course.course_id,order:'teaching_hour.asc'});lessons=courseLessons;
+      // Keep high-volume content restricted to lessons and sessions of the selected course.
+      const lessonFilter=courseLessons.length?{'lesson_id':'in.('+courseLessons.map(l=>l.id).join(',')+')'}:null;
+      const sessionsForCourse=await this.table('class_sessions',{'offering_id':'eq.'+selected,order:'started_at.desc',limit:'40'});
+      const sessionFilter=sessionsForCourse.length?{'session_id':'in.('+sessionsForCourse.map(row=>row.id).join(',')+')'}:null;
       const items=await Promise.all([
         this.table('lab_practicals',{'course_id':'eq.'+course.course_id,order:'experiment_no.asc'}),this.table('lab_unlocks',{'offering_id':'eq.'+selected}),this.table('lab_completions',{'offering_id':'eq.'+selected}),
-        this.table('lesson_materials'),this.table('lesson_unlocks',{'offering_id':'eq.'+selected}),
-        this.table('class_sessions',{'offering_id':'eq.'+selected,order:'started_at.desc',limit:'40'}),
+        (lessonFilter?this.table('lesson_materials',lessonFilter):Promise.resolve([])),this.table('lesson_unlocks',{'offering_id':'eq.'+selected}),
+        Promise.resolve(sessionsForCourse),
         this.table('lesson_schedule',{'offering_id':'eq.'+selected}),
-        this.table('activities'),this.table('activity_releases'),this.rpc('academy_list_attempts',{p_offering:selected}),
+        (lessonFilter?this.table('activities',lessonFilter):Promise.resolve([])),(sessionFilter?this.table('activity_releases',sessionFilter):Promise.resolve([])),this.rpc('academy_list_attempts',{p_offering:selected}),
         this.table('learning_requests',{'offering_id':'eq.'+selected,order:'created_at.desc'}),
         this.table('access_grants',{'offering_id':'eq.'+selected}),
         this.table('revision_sets',{'offering_id':'eq.'+selected}),
         this.table('enrollments',{'offering_id':'eq.'+selected}),
-        this.table('profiles'),this.table('personal_notes'),this.table('attendance')]);
+        this.table('profiles'),(self.account_role==='student'?this.table('personal_notes',{'student_id':'eq.'+this.userId}):this.table('personal_notes')),(sessionFilter?this.table('attendance',sessionFilter):Promise.resolve([]))]);
       [labs,labUnlocks,labCompletions,materials,unlocks,sessions,schedule,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,attendance]=items;
     }
     return {me:self,offerings:available,courses,courseAlerts,courseUnits:allCourseUnits.filter(u=>u.course_id===course?.course_id),offeringId:selected,schedule,labs,labUnlocks,labCompletions,lessons,materials,unlocks,sessions,attendance,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,devices};
