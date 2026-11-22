@@ -57,13 +57,12 @@ export class AcademyApi {
       // Keep high-volume content restricted to lessons and sessions of the selected course.
       const lessonFilter=courseLessons.length?{'lesson_id':'in.('+courseLessons.map(l=>l.id).join(',')+')'}:null;
       const sessionsForCourse=await this.table('class_sessions',{'offering_id':'eq.'+selected,order:'started_at.desc',limit:'40'});
-      const sessionFilter=sessionsForCourse.length?{'session_id':'in.('+sessionsForCourse.map(row=>row.id).join(',')+')'}:null;
       const items=await Promise.all([
         this.table('lab_practicals',{'course_id':'eq.'+course.course_id,order:'experiment_no.asc'}),this.table('lab_unlocks',{'offering_id':'eq.'+selected}),this.table('lab_completions',{'offering_id':'eq.'+selected}),
         (lessonFilter?this.table('lesson_materials',lessonFilter):Promise.resolve([])),this.table('lesson_unlocks',{'offering_id':'eq.'+selected}),
         Promise.resolve(sessionsForCourse),
         this.table('lesson_schedule',{'offering_id':'eq.'+selected}),
-        (lessonFilter?this.table('activities',lessonFilter):Promise.resolve([])),(sessionFilter?this.table('activity_releases',sessionFilter):Promise.resolve([])),this.rpc('academy_list_attempts',{p_offering:selected}),
+        (lessonFilter?this.table('activities',lessonFilter):Promise.resolve([])),this.table('activity_releases'),this.rpc('academy_list_attempts',{p_offering:selected}),
         this.table('learning_requests',{'offering_id':'eq.'+selected,order:'created_at.desc'}),
         this.table('access_grants',{'offering_id':'eq.'+selected}),
         this.table('revision_sets',{'offering_id':'eq.'+selected}),
