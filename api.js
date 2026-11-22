@@ -34,7 +34,7 @@ export class AcademyApi {
     const [offerings,courses]=await Promise.all([this.table('offerings',{order:'created_at.desc'}),this.table('courses')]);
     const available=offerings.filter(o=>courses.some(c=>c.id===o.course_id));
     let selected=localStorage.getItem('g2r2-offering');if(!available.some(o=>o.id===selected))selected=available[0]?.id||null;
-    let course=available.find(o=>o.id===selected);let labs=[],labUnlocks=[],labCompletions=[],lessons=[],materials=[],unlocks=[],sessions=[],attendance=[],activities=[],releases=[],attempts=[],requests=[],grants=[],revisions=[],enrollments=[],profiles=[],notes=[],devices=[];
+    let course=available.find(o=>o.id===selected);let schedule=[];let labs=[],labUnlocks=[],labCompletions=[],lessons=[],materials=[],unlocks=[],sessions=[],attendance=[],activities=[],releases=[],attempts=[],requests=[],grants=[],revisions=[],enrollments=[],profiles=[],notes=[],devices=[];
     devices=await this.table('registered_devices');
     if(course){
       const courseLessons=await this.table('lessons',{'course_id':'eq.'+course.course_id,order:'teaching_hour.asc'});lessons=courseLessons;
@@ -42,14 +42,15 @@ export class AcademyApi {
         this.table('lab_practicals',{'course_id':'eq.'+course.course_id,order:'experiment_no.asc'}),this.table('lab_unlocks',{'offering_id':'eq.'+selected}),this.table('lab_completions',{'offering_id':'eq.'+selected}),
         this.table('lesson_materials'),this.table('lesson_unlocks',{'offering_id':'eq.'+selected}),
         this.table('class_sessions',{'offering_id':'eq.'+selected,order:'started_at.desc',limit:'40'}),
+        this.table('lesson_schedule',{'offering_id':'eq.'+selected}),
         this.table('activities'),this.table('activity_releases'),this.rpc('academy_list_attempts',{p_offering:selected}),
         this.table('learning_requests',{'offering_id':'eq.'+selected,order:'created_at.desc'}),
         this.table('access_grants',{'offering_id':'eq.'+selected}),
         this.table('revision_sets',{'offering_id':'eq.'+selected}),
         this.table('enrollments',{'offering_id':'eq.'+selected}),
         this.table('profiles'),this.table('personal_notes'),this.table('attendance')]);
-      [labs,labUnlocks,labCompletions,materials,unlocks,sessions,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,attendance]=items;
+      [labs,labUnlocks,labCompletions,materials,unlocks,sessions,schedule,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,attendance]=items;
     }
-    return {me:self,offerings:available,courses,offeringId:selected,labs,labUnlocks,labCompletions,lessons,materials,unlocks,sessions,attendance,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,devices};
+    return {me:self,offerings:available,courses,offeringId:selected,schedule,labs,labUnlocks,labCompletions,lessons,materials,unlocks,sessions,attendance,activities,releases,attempts,requests,grants,revisions,enrollments,profiles,notes,devices};
   }
 }
