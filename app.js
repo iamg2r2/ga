@@ -269,7 +269,12 @@ async function init(){
     if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     if(!demoMode)setInterval(async()=>{const before=platformStatus.maintenance_enabled,wasDisabled=platformStatus.account_disabled;await checkPlatform();if(before!==platformStatus.maintenance_enabled||wasDisabled!==platformStatus.account_disabled){if(api.session&&platformStatus.account_disabled){render()}else if(api.session&&platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else if(api.session){try{await refresh()}catch(e){notice(e.message)}}else render()}},30000);
     timer=setInterval(async()=>{if(!document.hidden&&!demoMode&&api.session&&!state.busy&&!state.modal&&['classroom','reports','requests','dashboard','courses'].includes(state.page)){
-      try{await refresh(false)}catch{}}
+      try{
+        if(state.page==='courses'&&data?.offerings){
+          const next=await api.loadCourseAlerts(data.offerings);
+          if(JSON.stringify(next)!==JSON.stringify(data.courseAlerts)){data.courseAlerts=next;render()}
+        }else await refresh(false);
+      }catch{}}
     },9500);
   }catch(e){root.innerHTML='<div class="auth"><div class="card"><h2>Academy needs a web server</h2><p>'+E(e.message)+'</p><p>Run <code>python -m http.server 8080</code> in the unzipped project folder, then open <code>http://localhost:8080</code>.</p></div></div>'}
 }
@@ -299,7 +304,7 @@ async function claimDevice(){const valid=await api.rpc('academy_claim_device',{p
 async function refresh(paint=true){
  const previousFingerprint=paint?null:liveFingerprint(data);
  const previousScroll=paint?null:window.scrollY;
- if(demoMode){data=demoData()}else{await checkPlatform();if(platformStatus.account_disabled)throw Error('Your Academy account has been suspended. Contact the administrator.');if(platformStatus.maintenance_enabled&&!platformStatus.is_admin){maintenanceScreen();return}data=await api.load()}
+ if(demoMode){data=demoData()}else{await checkPlatform();if(platformStatus.account_disabled)throw Error('Your Academy account has been suspended. Contact the administrator.');if(platformStatus.maintenance_enabled&&!platformStatus.is_admin){maintenanceScreen();return}data=await api.load({coursesOnly:state.page==='courses'})}
  if(state.offeringId&&state.offeringId!==data.offeringId){
   state.hour=1;state.unit=1;state.manualUnit=1;state.manualTopic=null;state.labNo=0;
   state.sessionLesson=null;state.selectedActivity=null;state.choice=null;state.ordering=[];state.draftReleaseId=null;
