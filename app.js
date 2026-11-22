@@ -1,4 +1,5 @@
 import {AcademyApi} from './api.js';
+import {icons} from './components/icons.js';
 import {myCoursesPage,courseAlertCount,markCourseVisited} from './my-courses.js';
 
 const cfg=window.ACADEMY_CONFIG||{};
@@ -18,19 +19,6 @@ let manualUnderstood=new Set();try{manualUnderstood=new Set(JSON.parse(localStor
 let previewState={count:0,themeDark:false,route:'home',api:'idle',auth:'out',notes:['Revise Flutter widgets','Practice Dart every day']};
 const esc=E;
 // Original Academy icon language: restrained line icons, not emoji navigation.
-const outline = (body) => `<svg aria-hidden="true" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
-const icons={
- dashboard:outline('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'),
- manual:outline('<path d="M5 4h13a2 2 0 0 1 2 2v14H7a2 2 0 0 0-2 2V4z"/><path d="M5 4a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h15M9 9h7M9 13h6"/>'),
- lessons:outline('<path d="M3 5.5A2.5 2.5 0 0 1 5.5 3H11v17H5.5A2.5 2.5 0 0 0 3 22z"/><path d="M21 5.5A2.5 2.5 0 0 0 18.5 3H13v17h5.5A2.5 2.5 0 0 1 21 22z"/>'),
- lab:outline('<path d="M8 3h8M10 3v5l-6 10a2 2 0 0 0 1.7 3h12.6A2 2 0 0 0 20 18L14 8V3M8 13h8M7 17h10"/>'),
- classroom:outline('<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M9 8l6 3-6 3z"/>'),
- practice:outline('<path d="M9 3H4v5a2 2 0 1 1 0 4v5h5a2 2 0 1 0 4 0h5v-5a2 2 0 1 0 0-4V3h-5a2 2 0 1 0-4 0z"/>'),
- requests:outline('<path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H7l-4 3v-6a7.5 7.5 0 1 1 17-4.5z"/><path d="M8 10h8M8 13.5h5"/>'),
- revisions:outline('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/>'),
- reports:outline('<path d="M4 20V4M4 20h17M8 16v-4M13 16V7M18 16v-8"/>'),
- settings:outline('<path d="M10 2h4l.6 2.2 2 .9 2.1-1.2 2.8 2.8-1.2 2.1.9 2L23 11v4l-2.2.6-.9 2 1.2 2.1-2.8 2.8-2.1-1.2-2 .9L14 23h-4l-.6-2.2-2-.9-2.1 1.2-2.8-2.8 1.2-2.1-.9-2L1 15v-4l2.2-.6.9-2-1.2-2.1 2.8-2.8 2.1 1.2 2-.9z" transform="translate(0 -1) scale(.96)"/><circle cx="12" cy="12" r="3"/>')
-};
 const dartUnitNames=['Basics of Dart','Fundamentals of Flutter','Widgets','Theming and Styling','Firebase Plugins'];
 const unitNames=new Proxy(dartUnitNames,{get(target,key){if(key==='map')return (callback)=>((data?.courseUnits?.length?Array.from({length:5},(_,i)=>data.courseUnits.find(u=>u.unit_no===i+1)?.title||'Unit '+(i+1)):target)).map(callback);if(typeof key==='string'&&/^\d+$/.test(key))return data?.courseUnits?.find(u=>u.unit_no===Number(key)+1)?.title||target[Number(key)];return target[key]}});
 const activeCourse=()=>data?.courses?.find(c=>c.id===data?.offerings?.find(o=>o.id===data?.offeringId)?.course_id);
@@ -281,7 +269,12 @@ async function init(){
     if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     if(!demoMode)setInterval(async()=>{const before=platformStatus.maintenance_enabled,wasDisabled=platformStatus.account_disabled;await checkPlatform();if(before!==platformStatus.maintenance_enabled||wasDisabled!==platformStatus.account_disabled){if(api.session&&platformStatus.account_disabled){render()}else if(api.session&&platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else if(api.session){try{await refresh()}catch(e){notice(e.message)}}else render()}},30000);
     timer=setInterval(async()=>{if(!document.hidden&&!demoMode&&api.session&&!state.busy&&!state.modal&&['classroom','reports','requests','dashboard','courses'].includes(state.page)){
-      try{await refresh(false)}catch{}}
+      try{
+        if(state.page==='courses'&&data?.offerings){
+          const next=await api.loadCourseAlerts(data.offerings);
+          if(JSON.stringify(next)!==JSON.stringify(data.courseAlerts)){data.courseAlerts=next;render()}
+        }else await refresh(false);
+      }catch{}}
     },9500);
   }catch(e){root.innerHTML='<div class="auth"><div class="card"><h2>Academy needs a web server</h2><p>'+E(e.message)+'</p><p>Run <code>python -m http.server 8080</code> in the unzipped project folder, then open <code>http://localhost:8080</code>.</p></div></div>'}
 }
@@ -311,7 +304,7 @@ async function claimDevice(){const valid=await api.rpc('academy_claim_device',{p
 async function refresh(paint=true){
  const previousFingerprint=paint?null:liveFingerprint(data);
  const previousScroll=paint?null:window.scrollY;
- if(demoMode){data=demoData()}else{await checkPlatform();if(platformStatus.account_disabled)throw Error('Your Academy account has been suspended. Contact the administrator.');if(platformStatus.maintenance_enabled&&!platformStatus.is_admin){maintenanceScreen();return}data=await api.load()}
+ if(demoMode){data=demoData()}else{await checkPlatform();if(platformStatus.account_disabled)throw Error('Your Academy account has been suspended. Contact the administrator.');if(platformStatus.maintenance_enabled&&!platformStatus.is_admin){maintenanceScreen();return}data=await api.load({coursesOnly:state.page==='courses'})}
  if(state.offeringId&&state.offeringId!==data.offeringId){
   state.hour=1;state.unit=1;state.manualUnit=1;state.manualTopic=null;state.labNo=0;
   state.sessionLesson=null;state.selectedActivity=null;state.choice=null;state.ordering=[];state.draftReleaseId=null;
