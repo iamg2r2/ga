@@ -18,6 +18,7 @@ jobs:
           node --check services/course-alerts.js
           node --check pages/my-courses.js
           node --check pages/administration.js
+          node --check pages/dashboards.js
           node --check components/icons.js
           node --check service-worker.js
       - name: Run Academy API regression tests
