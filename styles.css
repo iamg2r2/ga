@@ -375,3 +375,10 @@ body{background:#f8fafc;color:#102047;-webkit-font-smoothing:antialiased}
 .my-course-actions{margin-top:auto;display:flex;flex-wrap:wrap;gap:9px}.my-course-actions .btn{flex:1;white-space:nowrap}
 .my-courses-empty{grid-column:1/-1}.course-bell{position:relative}.course-bell-count{font-weight:800;color:#c65331}
 @media(max-width:700px){.my-course-card{min-height:auto;padding:20px}.my-courses-heading{margin-bottom:18px}.course-home-button{display:none}}
+
+/* Share the existing Flutter campus hero artwork with the student learning desk. */
+.student-welcome{background:#7ecdfb url('./assets/academy-campus-hero.webp') center center/cover no-repeat;isolation:isolate;min-height:345px;border:0}
+.student-welcome:before{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,#e0f5fffa 0%,#e0f5fff0 33%,#e0f5ff85 58%,#e0f5ff08 100%);pointer-events:none}
+.student-welcome:after{display:none}
+.student-hero-copy{max-width:500px}
+@media(max-width:760px){.student-welcome{background-position:60% center;align-items:flex-start;flex-direction:column}.student-welcome:before{background:linear-gradient(180deg,#e0f5fff8 0%,#e0f5ffed 55%,#e0f5ff54 100%)}.student-hero-note{align-self:flex-end;flex-basis:auto;max-width:100%;transform:none}}
