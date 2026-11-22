@@ -269,14 +269,33 @@ async function init(){
     if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     if(!demoMode)setInterval(async()=>{const before=platformStatus.maintenance_enabled,wasDisabled=platformStatus.account_disabled;await checkPlatform();if(before!==platformStatus.maintenance_enabled||wasDisabled!==platformStatus.account_disabled){if(api.session&&platformStatus.account_disabled){render()}else if(api.session&&platformStatus.maintenance_enabled&&!platformStatus.is_admin)maintenanceScreen();else if(api.session){try{await refresh()}catch(e){notice(e.message)}}else render()}},30000);
     let pollingInFlight=false;
-    timer=setInterval(async()=>{if(pollingInFlight)return;if(!document.hidden&&!demoMode&&api.session&&!state.busy&&!state.modal&&['classroom','reports','requests','dashboard','courses'].includes(state.page)){
+    let lastWorkspaceRefresh=0;
+    timer=setInterval(async()=>{
+      if(pollingInFlight||document.hidden||demoMode||!api.session||state.busy||state.modal||!data?.offerings)return;
+      if(!['classroom','reports','requests','dashboard','courses'].includes(state.page))return;
       pollingInFlight=true;
       try{
-        if(state.page==='courses'&&data?.offerings){
-          const next=await api.loadCourseAlerts(data.offerings);
-          if(JSON.stringify(next)!==JSON.stringify(data.courseAlerts)){data.courseAlerts=next;render()}
-        }else await refresh(false);
-      }catch{}finally{pollingInFlight=false}}
+        // Poll lightweight course status first. The full workspace is only reloaded
+        // when live classroom state changes or when its periodic refresh is due.
+        const previous=data.courseAlerts||[];
+        const next=await api.loadCourseAlerts(data.offerings);
+        const changed=JSON.stringify(next)!==JSON.stringify(previous);
+        const currentBefore=previous.find(a=>a.offeringId===data.offeringId);
+        const currentAfter=next.find(a=>a.offeringId===data.offeringId);
+        const currentChanged=JSON.stringify(currentBefore)!==JSON.stringify(currentAfter);
+        data.courseAlerts=next;
+        if(state.page==='courses'){
+          if(changed)render();
+        }else{
+          const now=Date.now();
+          const due=now-lastWorkspaceRefresh>=30000;
+          if(state.page==='classroom'||currentChanged||due){
+            await refresh(false);
+            lastWorkspaceRefresh=Date.now();
+          }else if(changed)render();
+        }
+      }catch(error){console.warn('Academy status refresh failed',error)}
+      finally{pollingInFlight=false}
     },9500);
   }catch(e){root.innerHTML='<div class="auth"><div class="card"><h2>Academy needs a web server</h2><p>'+E(e.message)+'</p><p>Run <code>python -m http.server 8080</code> in the unzipped project folder, then open <code>http://localhost:8080</code>.</p></div></div>'}
 }
