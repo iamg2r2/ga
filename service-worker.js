@@ -1,4 +1,4 @@
-const CACHE='g2r2-academy-v28-integration';
+const CACHE='g2r2-academy-v29-dashboard-fix';
 const SHELL=['./','./index.html','./styles.css','./app.js','./api.js','./my-courses.js','./pages/my-courses.js','./pages/administration.js','./pages/dashboards.js','./pages/study-notes.js','./pages/study-manual.js','./pages/lab-studio.js','./pages/learning-workflows.js','./pages/classroom.js','./services/academy-api.js','./services/course-alerts.js','./components/icons.js','./config.js','./assets/icon-192.png','./assets/academy-logo.webp','./assets/rocket.webp','./assets/academy-campus-hero.webp'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
